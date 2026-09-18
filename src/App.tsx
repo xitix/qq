@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   buildSensors,
   loadSensorConfigs,
@@ -16,6 +16,7 @@ import HumidityChart from './components/HumidityChart';
 import WindChart from './components/WindChart';
 import RainChart from './components/RainChart';
 import SensorManager from './components/SensorManager';
+import { initDatabase, isDBLoaded, getDBError, DBStatus } from './data/database';
 
 function App() {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
@@ -23,6 +24,11 @@ function App() {
   const [selectedSensor, setSelectedSensor] = useState<string>('all');
   const [showManager, setShowManager] = useState(false);
   const [sensorConfigs, setSensorConfigs] = useState<SensorConfig[]>(loadSensorConfigs);
+  const [dbStatus, setDbStatus] = useState<DBStatus>({ loaded: false, error: null, tables: [] });
+
+  useEffect(() => {
+    initDatabase().then(setDbStatus);
+  }, []);
 
   const sensors = useMemo(() => buildSensors(sensorConfigs), [sensorConfigs]);
 
@@ -98,10 +104,24 @@ function App() {
                   {sensorConfigs.length}
                 </span>
               </button>
-              <div className="flex items-center gap-2 bg-green-900/30 border border-green-700 rounded-lg px-3 py-2">
-                <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></span>
-                <span className="text-green-400 text-sm font-medium">Conectat</span>
-                <span className="text-gray-400 text-sm ml-2">22:28:15</span>
+              <div className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${
+                dbStatus.loaded 
+                  ? 'bg-green-900/30 border-green-700' 
+                  : 'bg-yellow-900/30 border-yellow-700'
+              }`}>
+                <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+                  dbStatus.loaded ? 'bg-green-500' : 'bg-yellow-500'
+                }`}></span>
+                <span className={`text-sm font-medium ${
+                  dbStatus.loaded ? 'text-green-400' : 'text-yellow-400'
+                }`}>
+                  {dbStatus.loaded ? 'DB Conectat' : 'Mod Demo'}
+                </span>
+                {dbStatus.loaded && (
+                  <span className="text-gray-400 text-xs ml-2">
+                    {dbStatus.tables.length} tabele
+                  </span>
+                )}
               </div>
             </div>
           </div>
