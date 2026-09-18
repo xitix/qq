@@ -5,9 +5,13 @@ interface SensorCardProps {
   latest: SensorReading | null;
   isSelected?: boolean;
   onSelect?: () => void;
+  onConfigureRain?: () => void;
+  hasRainCorrection?: boolean;
+  rainOffset?: number;
+  onClearRainOffset?: () => void;
 }
 
-export default function SensorCard({ sensor, latest, isSelected = true, onSelect }: SensorCardProps) {
+export default function SensorCard({ sensor, latest, isSelected = true, onSelect, onConfigureRain, hasRainCorrection, rainOffset, onClearRainOffset }: SensorCardProps) {
   const cardClasses = onSelect
     ? `cursor-pointer ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-gray-700 hover:border-gray-500'}`
     : 'border-gray-700';
@@ -28,10 +32,33 @@ export default function SensorCard({ sensor, latest, isSelected = true, onSelect
               {sensor.model} • ID: {sensor.deviceId}
             </p>
           )}
+          {hasRainCorrection && rainOffset !== undefined && (
+            <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
+              🌧️ Corecție ploaie: offset {rainOffset}mm (delta afișat)
+              {onClearRainOffset && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onClearRainOffset(); }}
+                  className="ml-1 text-red-400 hover:text-red-300 underline"
+                >
+                  reset
+                </button>
+              )}
+            </p>
+          )}
         </div>
-        <span className="text-xs text-gray-500">
-          Ultima actualizare: {sensor.lastUpdate}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className="text-xs text-gray-500">
+            Ultima actualizare: {sensor.lastUpdate}
+          </span>
+          {onConfigureRain && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onConfigureRain(); }}
+              className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded transition-colors"
+            >
+              🌧️ Corecție ploaie
+            </button>
+          )}
+        </div>
       </div>
 
       {!latest ? (
