@@ -82,11 +82,12 @@ function generateReadings(config: SensorConfig): SensorReading[] {
   return readings;
 }
 
-export function buildSensors(configs: SensorConfig[]): Sensor[] {
+export function buildSensors(configs: SensorConfig[], apiReadings?: Record<string, SensorReading[]>): Sensor[] {
   const now = new Date('2026-09-18T22:30:00');
   
   return configs.map(config => {
-    const readings = generateReadings(config);
+    // Folosește readings din API dacă există, altfel generează mock data
+    const readings = apiReadings?.[config.id] || generateReadings(config);
     const lastReading = readings[readings.length - 1];
     const lastUpdate = lastReading?.timestamp || now.toISOString().replace('T', ' ').substring(0, 19);
     

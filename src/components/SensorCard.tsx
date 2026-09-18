@@ -3,19 +3,19 @@ import { Sensor, SensorReading } from '../data/mockData';
 interface SensorCardProps {
   sensor: Sensor;
   latest: SensorReading | null;
-  isSelected: boolean;
-  onSelect: () => void;
+  isSelected?: boolean;
+  onSelect?: () => void;
 }
 
-export default function SensorCard({ sensor, latest, isSelected, onSelect }: SensorCardProps) {
+export default function SensorCard({ sensor, latest, isSelected = true, onSelect }: SensorCardProps) {
+  const cardClasses = onSelect
+    ? `cursor-pointer ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-gray-700 hover:border-gray-500'}`
+    : 'border-gray-700';
+
   return (
     <div
       onClick={onSelect}
-      className={`bg-gray-800 rounded-xl border p-4 cursor-pointer transition-all ${
-        isSelected
-          ? 'border-blue-500 ring-1 ring-blue-500/30'
-          : 'border-gray-700 hover:border-gray-500'
-      }`}
+      className={`bg-gray-800 rounded-xl border p-4 transition-all ${cardClasses}`}
     >
       <div className="flex items-start justify-between mb-3">
         <div>
