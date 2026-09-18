@@ -111,16 +111,70 @@ export interface AvailableSensor {
   device_id: string;
   name: string;
   model: string;
-  table: string;
-  first_seen: string;
+  table?: string;
+  first_seen?: string;
   last_update: string;
-  total_readings: number;
-  avg_temperature: number | null;
-  avg_humidity: number | null;
+  total_readings?: number;
+  avg_temperature?: number | null;
+  avg_humidity?: number | null;
   battery: string;
   metrics: string[];
-  rssi: number | null;
-  protocol: string;
+  rssi?: number | null;
+  protocol?: string;
+  subtype?: string;
+  corrections?: {
+    rain_offset?: number;
+    rain_offset_set_at?: string;
+  };
+}
+
+/**
+ * Setează offset-ul pentru ploaie al unui senzor
+ */
+export async function setRainOffset(sensorId: string, offset: number): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/api/corrections/${sensorId}/rain_offset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ offset }),
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Set rain offset error:', err);
+    return false;
+  }
+}
+
+/**
+ * Auto-detectează offset-ul din ultima valoare raportată
+ */
+export async function autoDetectRainOffset(sensorId: string): Promise<number | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/corrections/${sensorId}/rain_offset/auto`, {
+      method: 'POST',
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.rain_offset;
+  } catch (err) {
+    console.error('Auto detect rain offset error:', err);
+    return null;
+  }
+}
+
+/**
+ * Șterge offset-ul pentru ploaie
+ */
+export async function clearRainOffset(sensorId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/api/corrections/${sensorId}/rain_offset`, {
+      method: 'DELETE',
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Clear rain offset error:', err);
+    return false;
+  }
 }
 
 /**
