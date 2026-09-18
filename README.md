@@ -8,16 +8,22 @@ Dashboard pentru vizualizarea datelor meteo din senzori RTL_433 → MQTT → SQL
 Aplicația funcționează imediat cu date simulate pentru demonstrație.
 
 ### Mod Bază de Date Reală
-Pentru a citi date din `sensors.db`:
 
-1. **Plasează fișierul `sensors.db`** în folderul `public/` al proiectului
-2. **Reîncarcă pagina** - aplicația va detecta automat baza de date
-3. Statusul din header va arăta "DB Conectat" cu numărul de tabele
+#### Opțiunea 1: Upload din interfață (recomandat)
+1. Deschide dashboard-ul în browser
+2. Apasă butonul **"📂 Încarcă DB"** din header
+3. Selectează fișierul `sensors.db` din root-ul proiectului (sau orice altă locație)
+4. Statusul se va schimba automat la **"🟢 DB Conectat"**
+
+#### Opțiunea 2: Plasare automată
+Copiază `sensors.db` în folderul `public/`:
 
 ```bash
-# Exemplu: copiază baza de date în folderul public
-cp /path/to/your/sensors.db public/sensors.db
+# Copiază baza de date în folderul public
+cp sensors.db public/sensors.db
 ```
+
+După copiere, reîncarcă pagina - aplicația va detecta automat baza de date.
 
 ## 📊 Structura Bazei de Date
 
@@ -98,9 +104,11 @@ După build, copiază folderul `dist/` pe serverul tău web împreună cu `senso
 ## 📝 Note
 
 - Dacă `sensors.db` nu este găsit, aplicația folosește automat date simulate
-- Baza de date este citită la încărcarea paginii (nu se actualizează în timp real)
-- Pentru actualizări live, reîncarcă pagina sau implementează un sistem de polling
+- Poți încărca baza de date direct din interfață folosind butonul "📂 Încarcă DB"
+- Baza de date este citită la încărcarea paginii sau la upload manual (nu se actualizează în timp real)
+- Pentru actualizări live, reîncarcă pagina sau folosește butonul de upload
 - Dimensiunea maximă recomandată pentru `sensors.db`: < 50 MB (pentru performanță optimă în browser)
+- Fișierul `sensors.db` poate fi în root-ul proiectului - nu trebuie neapărat în `public/`
 
 ## 🔗 Links
 

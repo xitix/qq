@@ -12,20 +12,50 @@ export interface DBStatus {
   tables: string[];
 }
 
+let SQLInstance: any = null;
+
+async function getSQL() {
+  if (!SQLInstance) {
+    SQLInstance = await initSqlJs({
+      locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
+    });
+  }
+  return SQLInstance;
+}
+
 export async function initDatabase(): Promise<DBStatus> {
   if (dbLoaded) {
     return { loaded: true, error: null, tables: getTables() };
   }
 
   try {
-    const SQL = await initSqlJs({
-      locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
-    });
+    const SQL = await getSQL();
 
-    // Try to load sensors.db from public folder
-    const response = await fetch('/sensors.db');
-    if (!response.ok) {
-      throw new Error(`sensors.db not found (HTTP ${response.status})`);
+    // Try to load sensors.db from multiple locations
+    const paths = [
+      '/sensors.db',           // public folder (Vite serves this at root)
+      './sensors.db',          // relative to current page
+      '../sensors.db',         // parent directory
+      'sensors.db',            // same directory
+    ];
+    
+    let response: Response | null = null;
+    let lastError: Error | null = null;
+    
+    for (const path of paths) {
+      try {
+        response = await fetch(path);
+        if (response.ok) {
+          console.log(`✅ Found sensors.db at: ${path}`);
+          break;
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error('Fetch failed');
+      }
+    }
+    
+    if (!response || !response.ok) {
+      throw new Error(`sensors.db not found in any location (tried: ${paths.join(', ')})`);
     }
 
     const buffer = await response.arrayBuffer();
@@ -251,6 +281,28 @@ export function rawQuery(sql: string): { columns: string[]; values: any[][] } | 
   } catch (err) {
     console.error('Raw query error:', err);
     return null;
+  }
+}
+
+/**
+ * Load database from a File object (user upload)
+ */
+export async function loadDatabaseFromFile(file: File): Promise<DBStatus> {
+  try {
+    const SQL = await getSQL();
+    const buffer = await file.arrayBuffer();
+    db = new SQL.Database(new Uint8Array(buffer));
+    dbLoaded = true;
+    dbError = null;
+    
+    console.log(`✅ Loaded sensors.db from file: ${file.name}`);
+    console.log('Tables:', getTables());
+    
+    return { loaded: true, error: null, tables: getTables() };
+  } catch (err) {
+    console.error('Failed to load database from file:', err);
+    dbError = err instanceof Error ? err.message : 'Unknown error';
+    return { loaded: false, error: dbError, tables: [] };
   }
 }
 

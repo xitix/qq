@@ -16,7 +16,7 @@ import HumidityChart from './components/HumidityChart';
 import WindChart from './components/WindChart';
 import RainChart from './components/RainChart';
 import SensorManager from './components/SensorManager';
-import { initDatabase, isDBLoaded, getDBError, DBStatus } from './data/database';
+import { initDatabase, isDBLoaded, getDBError, DBStatus, loadDatabaseFromFile } from './data/database';
 
 function App() {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
@@ -28,6 +28,17 @@ function App() {
 
   useEffect(() => {
     initDatabase().then(setDbStatus);
+  }, []);
+
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const status = await loadDatabaseFromFile(file);
+    setDbStatus(status);
+    
+    // Reset file input
+    e.target.value = '';
   }, []);
 
   const sensors = useMemo(() => buildSensors(sensorConfigs), [sensorConfigs]);
@@ -104,24 +115,38 @@ function App() {
                   {sensorConfigs.length}
                 </span>
               </button>
-              <div className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${
-                dbStatus.loaded 
-                  ? 'bg-green-900/30 border-green-700' 
-                  : 'bg-yellow-900/30 border-yellow-700'
-              }`}>
-                <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${
-                  dbStatus.loaded ? 'bg-green-500' : 'bg-yellow-500'
-                }`}></span>
-                <span className={`text-sm font-medium ${
-                  dbStatus.loaded ? 'text-green-400' : 'text-yellow-400'
+              <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${
+                  dbStatus.loaded 
+                    ? 'bg-green-900/30 border-green-700' 
+                    : 'bg-yellow-900/30 border-yellow-700'
                 }`}>
-                  {dbStatus.loaded ? 'DB Conectat' : 'Mod Demo'}
-                </span>
-                {dbStatus.loaded && (
-                  <span className="text-gray-400 text-xs ml-2">
-                    {dbStatus.tables.length} tabele
+                  <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+                    dbStatus.loaded ? 'bg-green-500' : 'bg-yellow-500'
+                  }`}></span>
+                  <span className={`text-sm font-medium ${
+                    dbStatus.loaded ? 'text-green-400' : 'text-yellow-400'
+                  }`}>
+                    {dbStatus.loaded ? 'DB Conectat' : 'Mod Demo'}
                   </span>
-                )}
+                  {dbStatus.loaded && (
+                    <span className="text-gray-400 text-xs ml-2">
+                      {dbStatus.tables.length} tabele
+                    </span>
+                  )}
+                </div>
+                
+                {/* Upload DB button */}
+                <label className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 cursor-pointer transition-colors">
+                  <span>📂</span>
+                  <span className="hidden sm:inline">Încarcă DB</span>
+                  <input
+                    type="file"
+                    accept=".db,.sqlite,.sqlite3"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
               </div>
             </div>
           </div>
