@@ -15,7 +15,7 @@ import HumidityChart from './components/HumidityChart';
 import WindChart from './components/WindChart';
 import RainChart from './components/RainChart';
 import SensorSelector from './components/SensorSelector';
-import { initDatabase, fetchAllData, fetchAvailableSensors, DBStatus, AvailableSensor } from './data/api';
+import { initDatabase, fetchAllData, fetchAvailableSensors, setRainOffset, autoDetectRainOffset, clearRainOffset, DBStatus, AvailableSensor } from './data/api';
 
 const STORAGE_KEY = 'meteo_selected_sensors';
 
@@ -59,6 +59,10 @@ function App() {
 
   // Datele citirilor de la API
   const [apiReadings, setApiReadings] = useState<Record<string, SensorReading[]>>({});
+
+  // Dialog pentru corecții ploaie
+  const [rainCorrectionSensor, setRainCorrectionSensor] = useState<AvailableSensor | null>(null);
+  const [rainOffsetInput, setRainOffsetInput] = useState('');
 
   // Construiește configs din selecția utilizatorului + datele din API
   const sensorConfigs: SensorConfig[] = useMemo(() => {

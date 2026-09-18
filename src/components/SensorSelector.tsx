@@ -5,16 +5,21 @@ interface Sensor {
   device_id: string;
   name: string;
   model: string;
-  table: string;
-  first_seen: string;
+  table?: string;
+  first_seen?: string;
   last_update: string;
-  total_readings: number;
-  avg_temperature: number | null;
-  avg_humidity: number | null;
+  total_readings?: number;
+  avg_temperature?: number | null;
+  avg_humidity?: number | null;
   battery: string;
   metrics: string[];
-  rssi: number | null;
-  protocol: string;
+  rssi?: number | null;
+  protocol?: string;
+  subtype?: string;
+  corrections?: {
+    rain_offset?: number;
+    rain_offset_set_at?: string;
+  };
 }
 
 interface SensorSelectorProps {
@@ -194,7 +199,7 @@ export default function SensorSelector({
                             💧 avg {sensor.avg_humidity}%
                           </span>
                         )}
-                        {sensor.rssi !== null && (
+                        {sensor.rssi != null && (
                           <span className={sensor.rssi > -70 ? 'text-green-400' : 'text-yellow-400'}>
                             📶 {sensor.rssi} dBm
                           </span>

@@ -10,79 +10,108 @@ app = Flask(__name__, static_folder='dist', static_url_path='')
 CORS(app)
 
 DB_PATH = '/root/sensors.db'
+CORRECTIONS_PATH = '/root/meteo-dashboard/sensor_corrections.json'
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
+def load_corrections():
+    """Încarcă corecțiile per senzor din fișierul JSON"""
+    if os.path.exists(CORRECTIONS_PATH):
+        try:
+            with open(CORRECTIONS_PATH, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_corrections(corrections):
+    """Salvează corecțiile în fișierul JSON"""
+    with open(CORRECTIONS_PATH, 'w') as f:
+        json.dump(corrections, f, indent=2)
+
 def parse_topic(topic):
-    """Parse topic MQTT pentru a extrage model și ID senzor
-    Format: home/OMG_lilygo_rtl_433_ESP_OOK/RTL_433toMQTT/{model}/{subtype}/{id}
-    """
-    try:
-        parts = topic.split('/')
-        if len(parts) >= 6:
-            model = parts[3]  # Nexus-TH, Fineoffset-WHx080, etc.
-            subtype = parts[4]  # 0, 1, etc.
-            sensor_id = parts[5]  # 58, 241, etc.
-            return model, subtype, sensor_id
-    except:
-        pass
+    parts = topic.split('/')
+    if len(parts) >= 6:
+        return parts[3], parts[4], parts[5]
     return None, None, None
 
+def apply_rain_correction(sensor_id, raw_rain_mm, corrections):
+    """
+    Aplică corecția pentru ploaie.
+    
+    Logica:
+    - offset = valoarea eronată de bază (ex: 39.9)
+    - Dacă raw >= offset → delta = raw - offset (ploaie nouă)
+    - Dacă raw < offset → senzorul a fost resetat → noul offset = raw, delta = 0
+    - Dacă raw == offset → delta = 0 (fără ploaie nouă)
+    
+    Returnează (delta, new_offset)
+    """
+    correction = corrections.get(sensor_id, {})
+    offset = correction.get('rain_offset', None)
+    
+    if offset is None or raw_rain_mm is None:
+        return raw_rain_mm, offset
+    
+    if raw_rain_mm >= offset:
+        # Valoare normală - calculează delta
+        delta = round(raw_rain_mm - offset, 1)
+        return delta, offset
+    else:
+        # Senzorul a fost resetat (valoarea a scăzut sub offset)
+        # Noul offset devine valoarea curentă
+        new_offset = raw_rain_mm
+        # Actualizează offset-ul în corecții
+        if sensor_id not in corrections:
+            corrections[sensor_id] = {}
+        corrections[sensor_id]['rain_offset'] = new_offset
+        save_corrections(corrections)
+        print(f"🔄 Rain sensor reset detected for {sensor_id}: new offset = {new_offset}")
+        return 0, new_offset
+
 def discover_sensors():
-    """Descoperă toți senzorii unici din tabela readings"""
     if not os.path.exists(DB_PATH):
         return []
-    
     try:
         conn = get_db()
         cursor = conn.cursor()
-        
-        # Obține toate topic-urile unice
         cursor.execute("SELECT DISTINCT topic FROM readings")
         topics = [row[0] for row in cursor.fetchall()]
-        
         sensors = {}
-        
         for topic in topics:
             model, subtype, sensor_id = parse_topic(topic)
             if not model or not sensor_id:
                 continue
-            
-            # Creează un key unic pentru senzor
             sensor_key = f"{model}_{sensor_id}"
-            
             if sensor_key not in sensors:
-                # Obține ultima citire pentru acest senzor
                 cursor.execute(
                     "SELECT * FROM readings WHERE topic LIKE ? ORDER BY timestamp DESC LIMIT 1",
                     (f'%/{model}/%/{sensor_id}',)
                 )
                 last_row = cursor.fetchone()
-                
                 if last_row:
-                    # Parse payload JSON
                     try:
                         payload = json.loads(last_row['payload'])
                     except:
                         payload = {}
-                    
-                    # Detectează metrics disponibile din payload
                     metrics = []
                     if 'temperature_C' in payload: metrics.append('temperature')
                     if 'humidity' in payload: metrics.append('humidity')
                     if 'rain_mm' in payload: metrics.append('rain')
                     if 'wind_avg_km_h' in payload: metrics.append('wind')
                     if 'battery_ok' in payload: metrics.append('battery')
-                    
-                    # Numără total citiri pentru acest senzor
                     cursor.execute(
                         "SELECT COUNT(*) as count FROM readings WHERE topic LIKE ?",
                         (f'%/{model}/%/{sensor_id}',)
                     )
                     total = cursor.fetchone()['count']
+                    
+                    # Încarcă corecțiile pentru acest senzor
+                    corrections = load_corrections()
+                    correction_info = corrections.get(sensor_key, {})
                     
                     sensors[sensor_key] = {
                         'id': sensor_key,
@@ -96,90 +125,70 @@ def discover_sensors():
                         'metrics': metrics,
                         'rssi': payload.get('rssi'),
                         'protocol': payload.get('protocol'),
+                        'corrections': correction_info,
                     }
-        
         conn.close()
-        
-        # Sortează după last_update (cei mai recenți primii)
         return sorted(sensors.values(), key=lambda x: x['last_update'], reverse=True)
-    
     except Exception as e:
-        print(f"Error discovering sensors: {e}")
+        print(f"Error: {e}")
         return []
 
 def get_sensor_readings(sensor_id, hours=24):
-    """Obține citirile pentru un senzor specific"""
     if not os.path.exists(DB_PATH):
         return []
-    
     try:
         conn = get_db()
         cursor = conn.cursor()
-        
-        # Parse sensor_id (format: model_deviceid)
         parts = sensor_id.rsplit('_', 1)
         if len(parts) != 2:
             return []
-        
         model, device_id = parts
-        
-        # Calculează timestamp-ul de început
         cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Obține citirile
         cursor.execute(
             "SELECT timestamp, payload FROM readings WHERE topic LIKE ? AND timestamp >= ? ORDER BY timestamp ASC",
             (f'%/{model}/%/{device_id}', cutoff)
         )
         
+        corrections = load_corrections()
+        rain_offset = corrections.get(sensor_id, {}).get('rain_offset', None)
+        
         readings = []
         for row in cursor.fetchall():
             try:
                 payload = json.loads(row['payload'])
+                reading = {'timestamp': row['timestamp']}
+                if 'temperature_C' in payload: reading['temperature'] = payload['temperature_C']
+                if 'humidity' in payload: reading['humidity'] = payload['humidity']
                 
-                reading = {
-                    'timestamp': row['timestamp'],
-                }
-                
-                # Extrage câmpurile din payload
-                if 'temperature_C' in payload:
-                    reading['temperature'] = payload['temperature_C']
-                if 'humidity' in payload:
-                    reading['humidity'] = payload['humidity']
+                # Aplică corecția pentru ploaie
                 if 'rain_mm' in payload:
-                    reading['rain_mm'] = payload['rain_mm']
-                if 'wind_avg_km_h' in payload:
-                    reading['wind_avg_kmh'] = payload['wind_avg_km_h']
-                if 'wind_max_km_h' in payload:
-                    reading['wind_max_kmh'] = payload['wind_max_km_h']
-                if 'wind_dir_deg' in payload:
-                    reading['wind_dir_deg'] = payload['wind_dir_deg']
-                if 'battery_ok' in payload:
-                    reading['battery'] = 'ok' if payload['battery_ok'] == 1 else 'low'
+                    raw_rain = payload['rain_mm']
+                    if rain_offset is not None:
+                        corrected, rain_offset = apply_rain_correction(sensor_id, raw_rain, corrections)
+                        reading['rain_mm'] = corrected
+                        reading['rain_raw'] = raw_rain  # păstrează și valoarea brută pentru debug
+                    else:
+                        reading['rain_mm'] = raw_rain
                 
+                if 'wind_avg_km_h' in payload: reading['wind_avg_kmh'] = payload['wind_avg_km_h']
+                if 'wind_max_km_h' in payload: reading['wind_max_kmh'] = payload['wind_max_km_h']
+                if 'wind_dir_deg' in payload: reading['wind_dir_deg'] = payload['wind_dir_deg']
+                if 'battery_ok' in payload: reading['battery'] = 'ok' if payload['battery_ok'] == 1 else 'low'
                 readings.append(reading)
             except:
                 continue
-        
         conn.close()
         return readings
-    
     except Exception as e:
-        print(f"Error getting readings: {e}")
+        print(f"Error: {e}")
         return []
 
 @app.route('/api/status')
 def api_status():
     if not os.path.exists(DB_PATH):
         return jsonify({'loaded': False, 'error': 'DB not found', 'tables': [], 'sensor_count': 0})
-    
     sensors = discover_sensors()
-    return jsonify({
-        'loaded': True,
-        'error': None,
-        'tables': ['readings'],
-        'sensor_count': len(sensors)
-    })
+    return jsonify({'loaded': True, 'error': None, 'tables': ['readings'], 'sensor_count': len(sensors)})
 
 @app.route('/api/sensors')
 def api_sensors():
@@ -191,7 +200,7 @@ def api_all():
     sensors = discover_sensors()
     readings = {}
     for s in sensors:
-        readings[s['id']] = get_sensor_readings(s['id'], 168)  # 7 zile
+        readings[s['id']] = get_sensor_readings(s['id'], 168)
     return jsonify({'sensors': sensors, 'readings': readings})
 
 @app.route('/api/sensor/<sensor_id>')
@@ -199,6 +208,106 @@ def api_sensor(sensor_id):
     hours = int(request.args.get('hours', 24))
     readings = get_sensor_readings(sensor_id, hours)
     return jsonify(readings)
+
+# ===== Endpoint-uri pentru gestionarea corecțiilor =====
+
+@app.route('/api/corrections', methods=['GET'])
+def get_corrections():
+    """Returnează toate corecțiile configurate"""
+    corrections = load_corrections()
+    return jsonify(corrections)
+
+@app.route('/api/corrections/<sensor_id>/rain_offset', methods=['POST'])
+def set_rain_offset(sensor_id):
+    """
+    Setează offset-ul pentru ploaie al unui senzor.
+    
+    Body JSON: {"offset": 39.9}
+    
+    Logica:
+    - Toate valorile viitoare vor fi afișate ca delta = raw - offset
+    - Dacă raw < offset (senzor resetat), offset-ul se actualizează automat
+    """
+    data = request.get_json()
+    if not data or 'offset' not in data:
+        return jsonify({'error': 'Missing "offset" field'}), 400
+    
+    offset = float(data['offset'])
+    corrections = load_corrections()
+    
+    if sensor_id not in corrections:
+        corrections[sensor_id] = {}
+    
+    corrections[sensor_id]['rain_offset'] = offset
+    corrections[sensor_id]['rain_offset_set_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    save_corrections(corrections)
+    
+    return jsonify({
+        'sensor_id': sensor_id,
+        'rain_offset': offset,
+        'message': f'Rain offset set to {offset} for {sensor_id}. Values will be shown as delta.'
+    })
+
+@app.route('/api/corrections/<sensor_id>/rain_offset', methods=['DELETE'])
+def clear_rain_offset(sensor_id):
+    """Șterge offset-ul pentru ploaie (revino la valorile brute)"""
+    corrections = load_corrections()
+    if sensor_id in corrections and 'rain_offset' in corrections[sensor_id]:
+        del corrections[sensor_id]['rain_offset']
+        if 'rain_offset_set_at' in corrections[sensor_id]:
+            del corrections[sensor_id]['rain_offset_set_at']
+        if not corrections[sensor_id]:
+            del corrections[sensor_id]
+        save_corrections(corrections)
+    return jsonify({'message': f'Rain offset cleared for {sensor_id}'})
+
+@app.route('/api/corrections/<sensor_id>/rain_offset/auto', methods=['POST'])
+def auto_set_rain_offset(sensor_id):
+    """
+    Auto-detectează offset-ul din ultima valoare raportată.
+    Util când știi că ultima valoare e eronată.
+    """
+    if not os.path.exists(DB_PATH):
+        return jsonify({'error': 'DB not found'}), 404
+    
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        parts = sensor_id.rsplit('_', 1)
+        if len(parts) != 2:
+            return jsonify({'error': 'Invalid sensor_id format'}), 400
+        model, device_id = parts
+        
+        cursor.execute(
+            "SELECT payload FROM readings WHERE topic LIKE ? ORDER BY timestamp DESC LIMIT 1",
+            (f'%/{model}/%/{device_id}',)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            return jsonify({'error': 'No readings found'}), 404
+        
+        payload = json.loads(row['payload'])
+        if 'rain_mm' not in payload:
+            return jsonify({'error': 'Sensor does not report rain'}), 400
+        
+        offset = payload['rain_mm']
+        corrections = load_corrections()
+        if sensor_id not in corrections:
+            corrections[sensor_id] = {}
+        corrections[sensor_id]['rain_offset'] = offset
+        corrections[sensor_id]['rain_offset_set_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        save_corrections(corrections)
+        
+        return jsonify({
+            'sensor_id': sensor_id,
+            'rain_offset': offset,
+            'message': f'Auto-detected rain offset: {offset} (from last reading)'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/')
 def index():
