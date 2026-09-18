@@ -45,10 +45,8 @@ function getTickInterval(range: TimeRange, dataLength: number): number {
   return Math.max(1, Math.floor(dataLength / 10));
 }
 
-const sensorColors: Record<string, string> = {
-  bucatarie: '#f59e0b',
-  curte: '#3b82f6',
-};
+// Colors will be determined from data
+const defaultColors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
 
 export default function TemperatureChart({ data, timeRange }: TemperatureChartProps) {
   if (data.length === 0) {
@@ -104,7 +102,7 @@ export default function TemperatureChart({ data, timeRange }: TemperatureChartPr
           <Line
             type="monotone"
             dataKey="value"
-            stroke={sensorColors[sensorIds[0] || ''] || '#3b82f6'}
+            stroke={defaultColors[0]}
             strokeWidth={2}
             dot={data.length < 30}
             activeDot={{ r: 4 }}
@@ -158,13 +156,13 @@ export default function TemperatureChart({ data, timeRange }: TemperatureChartPr
           labelFormatter={(label) => `Timp: ${label}`}
         />
         <Legend />
-        {sensorIds.map(id => (
+        {sensorIds.map((id, idx) => (
           <Line
             key={id}
             type="monotone"
             dataKey={id}
             name={data.find(d => d.sensorId === id)?.sensorName || id}
-            stroke={sensorColors[id as string] || '#6b7280'}
+            stroke={defaultColors[idx % defaultColors.length]}
             strokeWidth={2}
             dot={combinedData.length < 30}
             activeDot={{ r: 4 }}

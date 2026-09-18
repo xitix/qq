@@ -19,7 +19,10 @@ export default function SensorCard({ sensor, latest, isSelected, onSelect }: Sen
     >
       <div className="flex items-start justify-between mb-3">
         <div>
-          <h2 className="text-lg font-semibold text-white">{sensor.name}</h2>
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <span>{sensor.icon}</span>
+            {sensor.name}
+          </h2>
           {sensor.model && (
             <p className="text-xs text-gray-400">
               {sensor.model} • ID: {sensor.deviceId}
@@ -40,7 +43,7 @@ export default function SensorCard({ sensor, latest, isSelected, onSelect }: Sen
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {latest.battery && (
+          {latest.battery !== undefined && (
             <MetricCard
               icon="🔋"
               label="Baterie"
@@ -96,15 +99,6 @@ export default function SensorCard({ sensor, latest, isSelected, onSelect }: Sen
               color="text-indigo-400"
             />
           )}
-          {latest.rain_mm !== undefined && (
-            <MetricCard
-              icon="⏱️"
-              label="Durată"
-              value={`${Math.floor((latest.rain_mm || 0) * 100)}s`}
-              color="text-gray-400"
-              small
-            />
-          )}
         </div>
       )}
     </div>
@@ -116,13 +110,11 @@ function MetricCard({
   label,
   value,
   color,
-  small,
 }: {
   icon: string;
   label: string;
   value: string;
   color: string;
-  small?: boolean;
 }) {
   return (
     <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/50">
@@ -130,7 +122,7 @@ function MetricCard({
         <span className="text-sm">{icon}</span>
         <span className="text-xs text-gray-400 truncate">{label}</span>
       </div>
-      <p className={`${color} font-bold ${small ? 'text-sm' : 'text-lg'}`}>{value}</p>
+      <p className={`${color} font-bold text-lg`}>{value}</p>
     </div>
   );
 }

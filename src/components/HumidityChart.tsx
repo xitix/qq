@@ -45,10 +45,7 @@ function getTickInterval(range: TimeRange, dataLength: number): number {
   return Math.max(1, Math.floor(dataLength / 10));
 }
 
-const sensorColors: Record<string, string> = {
-  bucatarie: '#f59e0b',
-  curte: '#06b6d4',
-};
+const defaultColors = ['#06b6d4', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#3b82f6'];
 
 export default function HumidityChart({ data, timeRange }: HumidityChartProps) {
   if (data.length === 0) {
@@ -163,8 +160,8 @@ export default function HumidityChart({ data, timeRange }: HumidityChartProps) {
           labelFormatter={(label) => `Timp: ${label}`}
         />
         <Legend />
-        {sensorIds.map(id => {
-          const color = sensorColors[id as string] || '#6b7280';
+        {sensorIds.map((id, idx) => {
+          const color = defaultColors[idx % defaultColors.length];
           const name = data.find(d => d.sensorId === id)?.sensorName || id;
           return (
             <Area

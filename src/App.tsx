@@ -1,30 +1,51 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
-  sensors,
+  buildSensors,
+  loadSensorConfigs,
+  saveSensorConfigs,
   filterByTimeRange,
   filterAberrations,
   getLatestReading,
   TimeRange,
+  Sensor,
 } from './data/mockData';
+import { SensorConfig, AVAILABLE_COLORS, AVAILABLE_ICONS } from './config/sensors';
 import SensorCard from './components/SensorCard';
 import TemperatureChart from './components/TemperatureChart';
 import HumidityChart from './components/HumidityChart';
 import WindChart from './components/WindChart';
 import RainChart from './components/RainChart';
+import SensorManager from './components/SensorManager';
 
 function App() {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [filterAberr, setFilterAberr] = useState(false);
   const [selectedSensor, setSelectedSensor] = useState<string>('all');
+  const [showManager, setShowManager] = useState(false);
+  const [sensorConfigs, setSensorConfigs] = useState<SensorConfig[]>(loadSensorConfigs);
 
-  const timeRangeLabels: Record<TimeRange, string> = {
-    '1h': '1 oră',
-    '24h': '24 ore',
-    '7d': '7 zile',
-    'all': 'Tot',
-  };
+  const sensors = useMemo(() => buildSensors(sensorConfigs), [sensorConfigs]);
 
-  const processedSensors = useMemo(() => {
+  const handleAddSensor = useCallback((config: SensorConfig) => {
+    const newConfigs = [...sensorConfigs, config];
+    setSensorConfigs(newConfigs);
+    saveSensorConfigs(newConfigs);
+  }, [sensorConfigs]);
+
+  const handleRemoveSensor = useCallback((id: string) => {
+    const newConfigs = sensorConfigs.filter(s => s.id !== id);
+    setSensorConfigs(newConfigs);
+    saveSensorConfigs(newConfigs);
+    if (selectedSensor === id) setSelectedSensor('all');
+  }, [sensorConfigs, selectedSensor]);
+
+  const handleResetSensors = useCallback(() => {
+    localStorage.removeItem('meteo_sensors');
+    setSensorConfigs(loadSensorConfigs());
+    setSelectedSensor('all');
+  }, []);
+
+  const processedSensors: Sensor[] = useMemo(() => {
     return sensors.map(sensor => {
       let readings = filterByTimeRange(sensor.readings, timeRange);
       if (filterAberr) {
@@ -32,7 +53,7 @@ function App() {
       }
       return { ...sensor, readings };
     });
-  }, [timeRange, filterAberr]);
+  }, [sensors, timeRange, filterAberr]);
 
   const visibleSensors = useMemo(() => {
     if (selectedSensor === 'all') return processedSensors;
@@ -40,8 +61,19 @@ function App() {
   }, [processedSensors, selectedSensor]);
 
   const allReadings = useMemo(() => {
-    return visibleSensors.flatMap(s => s.readings.map(r => ({ ...r, sensorId: s.id, sensorName: s.name })));
+    return visibleSensors.flatMap(s =>
+      s.readings.map(r => ({ ...r, sensorId: s.id, sensorName: s.name }))
+    );
   }, [visibleSensors]);
+
+  const hasWindSensor = visibleSensors.some(s => s.metrics.includes('wind'));
+
+  const timeRangeLabels: Record<TimeRange, string> = {
+    '1h': '1 oră',
+    '24h': '24 ore',
+    '7d': '7 zile',
+    'all': 'Tot',
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
@@ -55,14 +87,39 @@ function App() {
               </h1>
               <p className="text-sm text-gray-400 mt-1">RTL_433 → MQTT → Dashboard</p>
             </div>
-            <div className="flex items-center gap-2 bg-green-900/30 border border-green-700 rounded-lg px-3 py-2">
-              <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></span>
-              <span className="text-green-400 text-sm font-medium">Conectat</span>
-              <span className="text-gray-400 text-sm ml-2">22:28:15</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowManager(!showManager)}
+                className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 transition-colors"
+              >
+                <span>⚙️</span>
+                <span>Gestionare senzori</span>
+                <span className="bg-blue-600 text-white text-xs rounded-full px-1.5 py-0.5">
+                  {sensorConfigs.length}
+                </span>
+              </button>
+              <div className="flex items-center gap-2 bg-green-900/30 border border-green-700 rounded-lg px-3 py-2">
+                <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></span>
+                <span className="text-green-400 text-sm font-medium">Conectat</span>
+                <span className="text-gray-400 text-sm ml-2">22:28:15</span>
+              </div>
             </div>
           </div>
         </div>
       </header>
+
+      {/* Sensor Manager Panel */}
+      {showManager && (
+        <SensorManager
+          sensors={sensorConfigs}
+          onAdd={handleAddSensor}
+          onRemove={handleRemoveSensor}
+          onReset={handleResetSensors}
+          onClose={() => setShowManager(false)}
+          availableColors={AVAILABLE_COLORS}
+          availableIcons={AVAILABLE_ICONS}
+        />
+      )}
 
       {/* Controls */}
       <div className="max-w-7xl mx-auto px-4 py-4">
@@ -92,7 +149,7 @@ function App() {
           >
             <option value="all">Toți senzorii</option>
             {sensors.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
+              <option key={s.id} value={s.id}>{s.icon} {s.name}</option>
             ))}
           </select>
 
@@ -115,7 +172,11 @@ function App() {
 
       {/* Sensor Cards */}
       <div className="max-w-7xl mx-auto px-4 pb-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={`grid gap-4 ${
+          processedSensors.length === 1 ? 'grid-cols-1 max-w-xl' :
+          processedSensors.length === 2 ? 'grid-cols-1 lg:grid-cols-2' :
+          'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+        }`}>
           {processedSensors.map(sensor => {
             const latest = getLatestReading(sensor.readings);
             const isSelected = selectedSensor === 'all' || selectedSensor === sensor.id;
@@ -130,51 +191,67 @@ function App() {
             );
           })}
         </div>
+        {processedSensors.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            <span className="text-4xl block mb-3">📡</span>
+            <p className="text-lg">Niciun senzor configurat</p>
+            <p className="text-sm mt-1">Apasă „Gestionare senzori" pentru a adăuga un senzor.</p>
+          </div>
+        )}
       </div>
 
       {/* Charts */}
-      <div className="max-w-7xl mx-auto px-4 pb-6">
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
-            <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-              <span>🌡️</span> Istoric Temperaturi
-            </h3>
-            <TemperatureChart data={allReadings} timeRange={timeRange} />
-          </div>
+      {visibleSensors.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 pb-6">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {/* Temperature */}
+            {visibleSensors.some(s => s.metrics.includes('temperature')) && (
+              <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
+                <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                  <span>🌡️</span> Istoric Temperaturi
+                </h3>
+                <TemperatureChart data={allReadings.filter(r => r.temperature !== undefined)} timeRange={timeRange} />
+              </div>
+            )}
 
-          <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
-            <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-              <span>💧</span> Istoric Umiditate
-            </h3>
-            <HumidityChart data={allReadings} timeRange={timeRange} />
-          </div>
+            {/* Humidity */}
+            {visibleSensors.some(s => s.metrics.includes('humidity')) && (
+              <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
+                <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                  <span>💧</span> Istoric Umiditate
+                </h3>
+                <HumidityChart data={allReadings.filter(r => r.humidity !== undefined)} timeRange={timeRange} />
+              </div>
+            )}
 
-          {/* Wind chart only for outdoor sensor */}
-          {visibleSensors.some(s => s.id === 'curte') && (
-            <>
+            {/* Wind */}
+            {hasWindSensor && (
               <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
                 <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
                   <span>💨</span> Istoric Vânt
                 </h3>
                 <WindChart
-                  data={allReadings.filter(r => r.sensorId === 'curte')}
+                  data={allReadings.filter(r => r.sensorId && visibleSensors.find(s => s.id === r.sensorId)?.metrics.includes('wind'))}
                   timeRange={timeRange}
                 />
               </div>
+            )}
 
+            {/* Rain */}
+            {hasWindSensor && (
               <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
                 <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
                   <span>🌧️</span> Istoric Ploaie
                 </h3>
                 <RainChart
-                  data={allReadings.filter(r => r.sensorId === 'curte')}
+                  data={allReadings.filter(r => r.sensorId && visibleSensors.find(s => s.id === r.sensorId)?.metrics.includes('rain'))}
                   timeRange={timeRange}
                 />
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Footer */}
       <footer className="bg-gray-800 border-t border-gray-700 px-4 py-4">
