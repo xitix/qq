@@ -32,7 +32,7 @@ def get_db_connection():
     return conn
 
 def discover_sensors():
-    """Descoperă senzorii din baza de date"""
+    """Descoperă toți senzorii din baza de date cu detalii complete"""
     if not os.path.exists(DB_PATH):
         return []
     
@@ -66,7 +66,20 @@ def discover_sensors():
             sensor_ids = [row[0] for row in cursor.fetchall()]
             
             for sensor_id in sensor_ids:
-                # Obține ultima actualizare
+                # Obține statistici complete
+                cursor.execute(f"""
+                    SELECT 
+                        MIN(timestamp) as first_seen,
+                        MAX(timestamp) as last_update,
+                        COUNT(*) as total_readings,
+                        AVG(temperature) as avg_temp,
+                        AVG(humidity) as avg_humidity
+                    FROM {table} 
+                    WHERE {id_col} = ?
+                """, (sensor_id,))
+                stats = cursor.fetchone()
+                
+                # Obține ultima citire pentru detalii
                 cursor.execute(f"""
                     SELECT * FROM {table} 
                     WHERE {id_col} = ? 
@@ -86,20 +99,37 @@ def discover_sensors():
                         metrics.append('rain')
                     if 'wind_avg' in columns or 'wind_speed' in columns:
                         metrics.append('wind')
+                    if 'wind_dir' in columns:
+                        metrics.append('wind_dir')
                     if 'battery' in columns:
                         metrics.append('battery')
                     
+                    # Generează nume descriptiv
+                    model = last_reading.get('model', 'Unknown')
+                    device_name = f"{model} - ID {sensor_id}"
+                    
                     sensors.append({
                         'id': f"{table}_{sensor_id}",
-                        'name': f"Senzor {sensor_id}",
-                        'model': last_reading.get('model', 'Unknown'),
                         'device_id': str(sensor_id),
-                        'last_update': last_reading.get('timestamp', ''),
+                        'name': device_name,
+                        'model': model,
+                        'table': table,
+                        'first_seen': stats['first_seen'] if stats else '',
+                        'last_update': stats['last_update'] if stats else '',
+                        'total_readings': stats['total_readings'] if stats else 0,
+                        'avg_temperature': round(stats['avg_temp'], 1) if stats and stats['avg_temp'] else None,
+                        'avg_humidity': round(stats['avg_humidity'], 1) if stats and stats['avg_humidity'] else None,
                         'battery': last_reading.get('battery', 'ok'),
                         'metrics': metrics,
+                        'rssi': last_reading.get('rssi'),
+                        'protocol': last_reading.get('protocol'),
                     })
         
         conn.close()
+        
+        # Sortează după last_update (cei mai recenți primii)
+        sensors.sort(key=lambda x: x['last_update'], reverse=True)
+        
         return sensors
     except Exception as e:
         print(f"Error discovering sensors: {e}")
@@ -200,6 +230,15 @@ def api_status():
             'tables': [],
             'sensor_count': 0,
         })
+
+@app.route('/api/sensors')
+def api_sensors():
+    """Lista completă a senzorilor disponibili în DB pentru selecție"""
+    sensors = discover_sensors()
+    return jsonify({
+        'sensors': sensors,
+        'count': len(sensors),
+    })
 
 @app.route('/api/all')
 def api_all():

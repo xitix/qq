@@ -106,6 +106,44 @@ export async function fetchSensorHistory(
   }
 }
 
+export interface AvailableSensor {
+  id: string;
+  device_id: string;
+  name: string;
+  model: string;
+  table: string;
+  first_seen: string;
+  last_update: string;
+  total_readings: number;
+  avg_temperature: number | null;
+  avg_humidity: number | null;
+  battery: string;
+  metrics: string[];
+  rssi: number | null;
+  protocol: string;
+}
+
+/**
+ * Fetch-ează lista completă de senzori disponibili în DB
+ */
+export async function fetchAvailableSensors(): Promise<AvailableSensor[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/sensors?t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.sensors || [];
+  } catch (err) {
+    console.error('Available sensors fetch error:', err);
+    return [];
+  }
+}
+
 /**
  * Inițializează conexiunea cu API-ul
  */
