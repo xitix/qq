@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   buildSensors,
   loadSensorConfigs,
@@ -16,6 +16,7 @@ import HumidityChart from './components/HumidityChart';
 import WindChart from './components/WindChart';
 import RainChart from './components/RainChart';
 import SensorManager from './components/SensorManager';
+import { initDatabase, isDBLoaded, getDBError, DBStatus, loadDatabaseFromFile } from './data/database';
 
 function App() {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
@@ -23,6 +24,36 @@ function App() {
   const [selectedSensor, setSelectedSensor] = useState<string>('all');
   const [showManager, setShowManager] = useState(false);
   const [sensorConfigs, setSensorConfigs] = useState<SensorConfig[]>(loadSensorConfigs);
+  const [dbStatus, setDbStatus] = useState<DBStatus>({ loaded: false, error: null, tables: [] });
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+
+  // Auto-refresh database every 30 seconds
+  useEffect(() => {
+    const loadDB = async (force = false) => {
+      const status = await initDatabase(force);
+      setDbStatus(status);
+      setLastRefresh(new Date());
+    };
+    
+    // Initial load
+    loadDB();
+    
+    // Poll every 30 seconds for new data from MQTT
+    const interval = setInterval(() => loadDB(true), 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const status = await loadDatabaseFromFile(file);
+    setDbStatus(status);
+    
+    // Reset file input
+    e.target.value = '';
+  }, []);
 
   const sensors = useMemo(() => buildSensors(sensorConfigs), [sensorConfigs]);
 
@@ -98,10 +129,42 @@ function App() {
                   {sensorConfigs.length}
                 </span>
               </button>
-              <div className="flex items-center gap-2 bg-green-900/30 border border-green-700 rounded-lg px-3 py-2">
-                <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></span>
-                <span className="text-green-400 text-sm font-medium">Conectat</span>
-                <span className="text-gray-400 text-sm ml-2">22:28:15</span>
+              <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${
+                  dbStatus.loaded 
+                    ? 'bg-green-900/30 border-green-700' 
+                    : 'bg-yellow-900/30 border-yellow-700'
+                }`}>
+                  <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+                    dbStatus.loaded ? 'bg-green-500' : 'bg-yellow-500'
+                  }`}></span>
+                  <span className={`text-sm font-medium ${
+                    dbStatus.loaded ? 'text-green-400' : 'text-yellow-400'
+                  }`}>
+                    {dbStatus.loaded ? 'DB Conectat' : 'Mod Demo'}
+                  </span>
+                  {dbStatus.loaded && (
+                  <span className="text-gray-400 text-xs ml-2">
+                    {dbStatus.tables.length} tabele
+                    {lastRefresh && (
+                      <span className="ml-2">
+                        • Actualizat: {lastRefresh.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    )}
+                  </span>
+                )}                </div>
+                
+                {/* Upload DB button */}
+                <label className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 cursor-pointer transition-colors">
+                  <span>📂</span>
+                  <span className="hidden sm:inline">Încarcă DB</span>
+                  <input
+                    type="file"
+                    accept=".db,.sqlite,.sqlite3"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
               </div>
             </div>
           </div>
