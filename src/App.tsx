@@ -25,9 +25,23 @@ function App() {
   const [showManager, setShowManager] = useState(false);
   const [sensorConfigs, setSensorConfigs] = useState<SensorConfig[]>(loadSensorConfigs);
   const [dbStatus, setDbStatus] = useState<DBStatus>({ loaded: false, error: null, tables: [] });
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
+  // Auto-refresh database every 30 seconds
   useEffect(() => {
-    initDatabase().then(setDbStatus);
+    const loadDB = async (force = false) => {
+      const status = await initDatabase(force);
+      setDbStatus(status);
+      setLastRefresh(new Date());
+    };
+    
+    // Initial load
+    loadDB();
+    
+    // Poll every 30 seconds for new data from MQTT
+    const interval = setInterval(() => loadDB(true), 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -130,11 +144,15 @@ function App() {
                     {dbStatus.loaded ? 'DB Conectat' : 'Mod Demo'}
                   </span>
                   {dbStatus.loaded && (
-                    <span className="text-gray-400 text-xs ml-2">
-                      {dbStatus.tables.length} tabele
-                    </span>
-                  )}
-                </div>
+                  <span className="text-gray-400 text-xs ml-2">
+                    {dbStatus.tables.length} tabele
+                    {lastRefresh && (
+                      <span className="ml-2">
+                        • Actualizat: {lastRefresh.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    )}
+                  </span>
+                )}                </div>
                 
                 {/* Upload DB button */}
                 <label className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 cursor-pointer transition-colors">

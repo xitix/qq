@@ -23,9 +23,21 @@ async function getSQL() {
   return SQLInstance;
 }
 
-export async function initDatabase(): Promise<DBStatus> {
-  if (dbLoaded) {
+export async function initDatabase(forceReload = false): Promise<DBStatus> {
+  // Skip if already loaded and not forcing reload
+  if (dbLoaded && !forceReload) {
     return { loaded: true, error: null, tables: getTables() };
+  }
+
+  // Close existing database if reloading
+  if (db && forceReload) {
+    try {
+      db.close();
+    } catch (e) {
+      // Ignore close errors
+    }
+    db = null;
+    dbLoaded = false;
   }
 
   try {
