@@ -151,6 +151,45 @@ function App() {
     }
   }, [availableSensors, selectedSensorIds]);
 
+  const handleAutoDetectOffset = async (sensor: AvailableSensor) => {
+    const offset = await autoDetectRainOffset(sensor.id);
+    if (offset !== null) {
+      setRainOffsetInput(offset.toString());
+      // Reîncarcă senzorii pentru a vedea corecția aplicată
+      const sensors = await fetchAvailableSensors();
+      setAvailableSensors(sensors);
+      const data = await fetchAllData();
+      if (data?.readings) setApiReadings(data.readings);
+    }
+  };
+
+  const handleSetOffset = async () => {
+    if (!rainCorrectionSensor || !rainOffsetInput) return;
+    const offset = parseFloat(rainOffsetInput);
+    if (isNaN(offset)) return;
+    
+    const success = await setRainOffset(rainCorrectionSensor.id, offset);
+    if (success) {
+      setRainCorrectionSensor(null);
+      setRainOffsetInput('');
+      // Reîncarcă datele
+      const sensors = await fetchAvailableSensors();
+      setAvailableSensors(sensors);
+      const data = await fetchAllData();
+      if (data?.readings) setApiReadings(data.readings);
+    }
+  };
+
+  const handleClearOffset = async (sensorId: string) => {
+    const success = await clearRainOffset(sensorId);
+    if (success) {
+      const sensors = await fetchAvailableSensors();
+      setAvailableSensors(sensors);
+      const data = await fetchAllData();
+      if (data?.readings) setApiReadings(data.readings);
+    }
+  };
+
   const processedSensors: Sensor[] = useMemo(() => {
     return sensors.map(sensor => {
       let readings = filterByTimeRange(sensor.readings, timeRange);
@@ -274,6 +313,8 @@ function App() {
           }`}>
             {processedSensors.map(sensor => {
               const latest = getLatestReading(sensor.readings);
+              const apiSensor = availableSensors.find(s => s.id === sensor.id);
+              const hasRainCorrection = apiSensor?.corrections?.rain_offset !== undefined;
               return (
                 <SensorCard
                   key={sensor.id}
@@ -281,6 +322,13 @@ function App() {
                   latest={latest}
                   isSelected={true}
                   onSelect={() => {}}
+                  onConfigureRain={sensor.metrics.includes('rain') ? () => {
+                    setRainCorrectionSensor(apiSensor || null);
+                    setRainOffsetInput(apiSensor?.corrections?.rain_offset?.toString() || '');
+                  } : undefined}
+                  hasRainCorrection={hasRainCorrection}
+                  rainOffset={apiSensor?.corrections?.rain_offset}
+                  onClearRainOffset={() => handleClearOffset(sensor.id)}
                 />
               );
             })}
@@ -368,6 +416,70 @@ function App() {
                 />
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Rain Correction Modal */}
+      {rainCorrectionSensor && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 border border-gray-600 rounded-xl p-6 max-w-md w-full shadow-2xl">
+            <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+              🌧️ Corecție ploaie
+            </h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Senzor: <span className="text-white">{rainCorrectionSensor.name}</span>
+            </p>
+            
+            <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700 mb-4">
+              <p className="text-sm text-gray-300 mb-3">
+                Setează valoarea curentă eronată ca offset. Valorile viitoare vor fi afișate ca delta:
+              </p>
+              <code className="text-xs text-amber-400 block bg-gray-950 p-2 rounded mb-3">
+                delta = valoare_brută - offset
+              </code>
+              <p className="text-xs text-gray-400">
+                Dacă senzorul este resetat fizic (valoarea scade sub offset), noul offset se actualizează automat.
+              </p>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm text-gray-400 mb-1">
+                Offset ploaie (mm)
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                value={rainOffsetInput}
+                onChange={e => setRainOffsetInput(e.target.value)}
+                placeholder="ex: 39.9"
+                className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSetOffset}
+                disabled={!rainOffsetInput || isNaN(parseFloat(rainOffsetInput))}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                ✓ Aplică corecție
+              </button>
+              <button
+                onClick={() => handleAutoDetectOffset(rainCorrectionSensor)}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-medium transition-colors"
+                title="Detectează automat din ultima valoare raportată"
+              >
+                🔍 Auto
+              </button>
+              <button
+                onClick={() => { setRainCorrectionSensor(null); setRainOffsetInput(''); }}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium transition-colors"
+              >
+                Anulează
+              </button>
+            </div>
           </div>
         </div>
       )}
