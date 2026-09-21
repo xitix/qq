@@ -12,6 +12,7 @@ import { SensorConfig } from './config/sensors';
 import SensorCard from './components/SensorCard';
 import TemperatureChart from './components/TemperatureChart';
 import HumidityChart from './components/HumidityChart';
+import PressureChart from './components/PressureChart';
 import WindChart from './components/WindChart';
 import RainChart from './components/RainChart';
 import SensorSelector from './components/SensorSelector';
@@ -382,6 +383,19 @@ function App() {
                 </h3>
                 <HumidityChart
                   data={allReadings.filter(r => r.humidity !== undefined)}
+                  timeRange={timeRange}
+                />
+              </div>
+            )}
+
+            {/* Pressure */}
+            {processedSensors.some(s => s.metrics.includes('pressure')) && (
+              <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
+                <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+                  <span>📊</span> Istoric Presiune
+                </h3>
+                <PressureChart
+                  data={allReadings.filter(r => r.pressure_hpa !== undefined)}
                   timeRange={timeRange}
                 />
               </div>

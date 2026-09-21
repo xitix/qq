@@ -91,7 +91,16 @@ export default function SensorCard({ sensor, latest, isSelected = true, onSelect
               icon="💧"
               label="Umiditate"
               value={`${latest.humidity}%`}
-              color="text-blue-400"
+              color={latest.humidity_warning === 'suspiciously_low' ? 'text-red-400' : 'text-blue-400'}
+              warning={latest.humidity_warning}
+            />
+          )}
+          {latest.pressure_hpa !== undefined && (
+            <MetricCard
+              icon="📊"
+              label="Presiune"
+              value={`${latest.pressure_hpa} hPa`}
+              color="text-violet-400"
             />
           )}
           {latest.rain_mm !== undefined && (
@@ -137,19 +146,23 @@ function MetricCard({
   label,
   value,
   color,
+  warning,
 }: {
   icon: string;
   label: string;
   value: string;
   color: string;
+  warning?: string;
 }) {
   return (
     <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700/50">
       <div className="flex items-center gap-1.5 mb-1">
         <span className="text-sm">{icon}</span>
         <span className="text-xs text-gray-400 truncate">{label}</span>
+        {warning && <span className="text-xs text-amber-400">⚠️</span>}
       </div>
       <p className={`${color} font-bold text-lg`}>{value}</p>
+      {warning && <p className="text-xs text-amber-400 mt-0.5">{warning}</p>}
     </div>
   );
 }

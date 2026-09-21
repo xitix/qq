@@ -4,11 +4,14 @@ export interface SensorReading {
   timestamp: string;
   temperature?: number;
   humidity?: number;
+  pressure_hpa?: number;
   rain_mm?: number;
   wind_avg_kmh?: number;
   wind_max_kmh?: number;
   wind_dir_deg?: number;
   battery?: string;
+  temperature_warning?: string;
+  humidity_warning?: string;
 }
 
 export interface Sensor {
@@ -127,7 +130,8 @@ export function saveSensorConfigs(configs: SensorConfig[]): void {
 }
 
 export function filterByTimeRange(readings: SensorReading[], range: TimeRange): SensorReading[] {
-  const now = new Date('2026-09-18T22:30:00');
+  // Folosește timpul real, nu o dată fixă
+  const now = new Date();
   let cutoff: Date;
   
   switch (range) {
@@ -144,7 +148,10 @@ export function filterByTimeRange(readings: SensorReading[], range: TimeRange): 
       return readings;
   }
   
-  return readings.filter(r => new Date(r.timestamp) >= cutoff);
+  return readings.filter(r => {
+    const ts = new Date(r.timestamp);
+    return ts >= cutoff && ts <= now;
+  });
 }
 
 export function filterAberrations(readings: SensorReading[]): SensorReading[] {

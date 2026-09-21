@@ -100,6 +100,7 @@ def discover_sensors():
                     metrics = []
                     if 'temperature_C' in payload: metrics.append('temperature')
                     if 'humidity' in payload: metrics.append('humidity')
+                    if 'pressure_hPa' in payload or 'pressure' in payload: metrics.append('pressure')
                     if 'rain_mm' in payload: metrics.append('rain')
                     if 'wind_avg_km_h' in payload: metrics.append('wind')
                     if 'battery_ok' in payload: metrics.append('battery')
@@ -157,8 +158,37 @@ def get_sensor_readings(sensor_id, hours=24):
             try:
                 payload = json.loads(row['payload'])
                 reading = {'timestamp': row['timestamp']}
-                if 'temperature_C' in payload: reading['temperature'] = payload['temperature_C']
-                if 'humidity' in payload: reading['humidity'] = payload['humidity']
+                
+                # Temperatură
+                if 'temperature_C' in payload:
+                    temp = payload['temperature_C']
+                    # Validare: temperatură rezonabilă (-50°C la +60°C)
+                    if -50 <= temp <= 60:
+                        reading['temperature'] = temp
+                    else:
+                        reading['temperature'] = temp
+                        reading['temperature_warning'] = 'value_out_of_range'
+                
+                # Umiditate
+                if 'humidity' in payload:
+                    hum = payload['humidity']
+                    # Validare: umiditate rezonabilă (0% la 100%)
+                    if 0 <= hum <= 100:
+                        # Verifică dacă e o valoare suspectă (prea mică pentru interior/exterior)
+                        if hum < 15:
+                            reading['humidity'] = hum
+                            reading['humidity_warning'] = 'suspiciously_low'
+                        else:
+                            reading['humidity'] = hum
+                    else:
+                        reading['humidity'] = hum
+                        reading['humidity_warning'] = 'value_out_of_range'
+                
+                # Presiune (pentru BMP280)
+                if 'pressure_hPa' in payload:
+                    reading['pressure_hpa'] = payload['pressure_hPa']
+                elif 'pressure' in payload:
+                    reading['pressure_hpa'] = payload['pressure']
                 
                 # Aplică corecția pentru ploaie
                 if 'rain_mm' in payload:
