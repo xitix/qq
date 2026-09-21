@@ -102,6 +102,39 @@ npm run build    # Build pentru producție
 npm run preview  # Preview build
 ```
 
+## Actualizare și Deployment pe Orange Pi
+
+> [!NOTE]
+> `npm run build` trebuie rulat **local pe mașina de dezvoltare** (nu direct pe Orange Pi, din cauza resurselor limitate de procesor și RAM).
+
+Comenzile de actualizare:
+
+```bash
+# 1. Pe PC-ul local: compilează frontend-ul
+npm run build
+
+# 2. Copiază backend-ul și build-ul pe Orange Pi
+scp api_server.py root@192.168.0.122:/root/meteo-dashboard/api_server.py
+scp -r dist/* root@192.168.0.122:/root/meteo-dashboard/dist/
+
+# 3. Pe Orange Pi: repornește serviciul API
+ssh root@192.168.0.122 "systemctl restart meteo-api.service"
+```
+
+## Status Probleme Cunoscute (Known Issues)
+
+1. **Filtrele de timp (1h & 7h / 7d)**:
+   - **Cauză**: Funcția `filterByTimeRange` folosea o dată statică hardcodată (`2026-09-18`). La citirea datelor reale din baza de date, orice citire mai recentă de Septembrie 18 trecea de filtru indiferent de intervalul selectat. De asemenea, opțiunea de `7h` lipsea din interfață.
+   - **Rezolvare**: S-a adăugat calcul dinamic al ancorei de timp (adaptabil la date live sau demo), parsare sigură ISO pentru Safari/iOS (`replace(' ', 'T')`) și suport complet pentru intervalul `7h` (7 ore) alături de `1h`, `24h`, `7d` și `all`.
+
+2. **Optimizare pagină și performanță grafice**:
+   - **Cauză**: În `TemperatureChart.tsx` și `HumidityChart.tsx`, combinarea senzorilor rula într-o buclă dublă `O(N^2)` peste zeci de mii de puncte, iar Recharts genera zeci de mii de elemente SVG în DOM, blocând browserul.
+   - **Rezolvare**:
+     - S-a creat modulul `chartUtils.ts` cu algoritm O(N) de bucketing și downsampling (intervale adaptate: 1m pentru 1h, 3m pentru 7h, 5m pentru 24h, 30m pentru 7d).
+     - Numărul de noduri SVG s-a redus de la ~25.000 la ~60-350 puncte, eliminând complet lag-ul.
+     - S-a adăugat `connectNulls` și alinierea citirilor asincrone pe intervale comune de timp.
+     - Pe backend (`api_server.py`), s-a adăugat index SQLite `idx_readings_topic_ts`, downsampling inteligent pentru interogări de 7 zile și endpoint-ul `/api/latest`.
+
 ## Licență
 
 MIT

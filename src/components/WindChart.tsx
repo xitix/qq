@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -9,6 +10,11 @@ import {
   Legend,
 } from 'recharts';
 import { TimeRange } from '../data/mockData';
+import {
+  bucketWindData,
+  formatTimestamp,
+  getTickInterval,
+} from '../data/chartUtils';
 
 interface ChartDataPoint {
   timestamp: string;
@@ -22,32 +28,12 @@ interface WindChartProps {
   timeRange: TimeRange;
 }
 
-function formatTimestamp(ts: string, range: TimeRange): string {
-  const date = new Date(ts);
-  if (range === '1h') {
-    return date.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
-  }
-  if (range === '24h') {
-    return date.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
-  }
-  if (range === '7d') {
-    return date.toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit' }) + ' ' +
-      date.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
-  }
-  return date.toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit' });
-}
-
-function getTickInterval(range: TimeRange, dataLength: number): number {
-  if (dataLength <= 5) return 0;
-  if (range === '1h') return Math.max(1, Math.floor(dataLength / 6));
-  if (range === '24h') return Math.max(1, Math.floor(dataLength / 8));
-  if (range === '7d') return Math.max(1, Math.floor(dataLength / 7));
-  return Math.max(1, Math.floor(dataLength / 10));
-}
-
 export default function WindChart({ data, timeRange }: WindChartProps) {
-  const windData = data.filter(d => d.wind_avg_kmh !== undefined);
-  
+  const windData = useMemo(() => {
+    const raw = data.filter(d => d.wind_avg_kmh !== undefined || d.wind_max_kmh !== undefined);
+    return bucketWindData(raw, timeRange);
+  }, [data, timeRange]);
+
   if (windData.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-500">
@@ -85,7 +71,8 @@ export default function WindChart({ data, timeRange }: WindChartProps) {
             borderRadius: '8px',
             color: '#f3f4f6',
           }}
-          labelFormatter={(label) => `Timp: ${label}`}
+          labelFormatter={(label) => `Timp: ${formatTimestamp(String(label), timeRange)}`}
+          formatter={(value: any, name: any) => [`${value} km/h`, name]}
         />
         <Legend />
         <Line
@@ -96,16 +83,18 @@ export default function WindChart({ data, timeRange }: WindChartProps) {
           strokeWidth={2}
           dot={windData.length < 30}
           activeDot={{ r: 4 }}
+          connectNulls
         />
         <Line
           type="monotone"
           dataKey="wind_max_kmh"
-          name="Vânt maxim"
+          name="Rafală maximă"
           stroke="#a855f7"
           strokeWidth={1.5}
           strokeDasharray="5 5"
           dot={false}
           activeDot={{ r: 4 }}
+          connectNulls
         />
       </LineChart>
     </ResponsiveContainer>

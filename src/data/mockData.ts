@@ -23,12 +23,18 @@ export interface Sensor {
   readings: SensorReading[];
 }
 
-export type TimeRange = '1h' | '24h' | '7d' | 'all';
+export type TimeRange = '1h' | '7h' | '24h' | '7d' | 'all';
+
+export function parseTimestampMs(ts: string): number {
+  if (!ts) return 0;
+  const parsed = new Date(ts.replace(' ', 'T')).getTime();
+  return isNaN(parsed) ? 0 : parsed;
+}
 
 // Generate readings based on sensor config
 function generateReadings(config: SensorConfig): SensorReading[] {
   const readings: SensorReading[] = [];
-  const now = new Date('2026-09-18T22:30:00');
+  const now = new Date();
   const startDate = new Date(now.getTime() - config.historyDays * 24 * 60 * 60 * 1000);
   
   let current = new Date(startDate);
@@ -83,7 +89,7 @@ function generateReadings(config: SensorConfig): SensorReading[] {
 }
 
 export function buildSensors(configs: SensorConfig[], apiReadings?: Record<string, SensorReading[]>): Sensor[] {
-  const now = new Date('2026-09-18T22:30:00');
+  const now = new Date();
   
   return configs.map(config => {
     // Folosește readings din API dacă există, altfel generează mock data
@@ -127,24 +133,39 @@ export function saveSensorConfigs(configs: SensorConfig[]): void {
 }
 
 export function filterByTimeRange(readings: SensorReading[], range: TimeRange): SensorReading[] {
-  const now = new Date('2026-09-18T22:30:00');
-  let cutoff: Date;
-  
+  if (!readings || readings.length === 0) return [];
+  if (range === 'all') return readings;
+
+  // Găsește cel mai recent timestamp din citiri
+  const lastTs = parseTimestampMs(readings[readings.length - 1].timestamp);
+  const clientNow = Date.now();
+
+  // Dacă ultima citire este recentă (în ultimele 24h), ne raportăm la timpul curent sau la ultima citire.
+  // Dacă datele sunt istorice/demo (din trecut), ne raportăm la ultimul timestamp din date.
+  const refTime = (lastTs > 0 && Math.abs(clientNow - lastTs) < 24 * 60 * 60 * 1000)
+    ? Math.max(clientNow, lastTs)
+    : (lastTs > 0 ? lastTs : clientNow);
+
+  let cutoffMs: number;
   switch (range) {
     case '1h':
-      cutoff = new Date(now.getTime() - 60 * 60 * 1000);
+      cutoffMs = 60 * 60 * 1000;
+      break;
+    case '7h':
+      cutoffMs = 7 * 60 * 60 * 1000;
       break;
     case '24h':
-      cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      cutoffMs = 24 * 60 * 60 * 1000;
       break;
     case '7d':
-      cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      cutoffMs = 7 * 24 * 60 * 60 * 1000;
       break;
-    case 'all':
+    default:
       return readings;
   }
-  
-  return readings.filter(r => new Date(r.timestamp) >= cutoff);
+
+  const cutoff = refTime - cutoffMs;
+  return readings.filter(r => parseTimestampMs(r.timestamp) >= cutoff);
 }
 
 export function filterAberrations(readings: SensorReading[]): SensorReading[] {

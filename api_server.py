@@ -23,6 +23,24 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def init_db_indexes():
+    """Creează index pe topic și timestamp dacă nu există deja pentru interogări instantanee"""
+    if not os.path.exists(DB_PATH):
+        return
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_readings_topic_ts ON readings(topic, timestamp)")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Index init note: {e}")
+
+try:
+    init_db_indexes()
+except Exception:
+    pass
+
 def load_corrections():
     """Încarcă corecțiile per senzor din fișierul JSON"""
     if os.path.exists(CORRECTIONS_PATH):
@@ -156,6 +174,15 @@ def get_sensor_readings(sensor_id, hours=24):
         rows = cursor.fetchall()
         conn.close()
 
+        # Downsampling inteligent pe backend dacă sunt foarte multe rânduri (> 1500 la 7 zile)
+        # Reduce traficul de rețea și consumul RAM pe Orange Pi
+        if len(rows) > 1500:
+            step = len(rows) // 1000
+            sampled = rows[::step]
+            if rows and rows[-1] not in sampled:
+                sampled.append(rows[-1])
+            rows = sampled
+
         for row in rows:
             try:
                 payload = json.loads(row['payload'])
@@ -196,6 +223,17 @@ def api_status():
 def api_sensors():
     sensors = discover_sensors()
     return jsonify({'sensors': sensors, 'count': len(sensors)})
+
+@app.route('/api/latest')
+def api_latest():
+    """Ultimele citiri per senzor (endpoint rapid pentru sumar)"""
+    sensors = discover_sensors()
+    latest = {}
+    for s in sensors:
+        r = get_sensor_readings(s['id'], hours=2)
+        if r:
+            latest[s['id']] = r[-1]
+    return jsonify(latest)
 
 @app.route('/api/all')
 def api_all():

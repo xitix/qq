@@ -207,13 +207,37 @@ function App() {
   }, [processedSensors]);
 
   const hasWindSensor = processedSensors.some(s => s.metrics.includes('wind'));
+  const hasRainSensor = processedSensors.some(s => s.metrics.includes('rain'));
 
   const timeRangeLabels: Record<TimeRange, string> = {
     '1h': '1 oră',
+    '7h': '7 ore',
     '24h': '24 ore',
     '7d': '7 zile',
     'all': 'Tot',
   };
+
+  const temperatureReadings = useMemo(() => {
+    return allReadings.filter(r => r.temperature !== undefined);
+  }, [allReadings]);
+
+  const humidityReadings = useMemo(() => {
+    return allReadings.filter(r => r.humidity !== undefined);
+  }, [allReadings]);
+
+  const windReadings = useMemo(() => {
+    const windSensorIds = new Set(
+      processedSensors.filter(s => s.metrics.includes('wind')).map(s => s.id)
+    );
+    return allReadings.filter(r => r.sensorId && windSensorIds.has(r.sensorId));
+  }, [allReadings, processedSensors]);
+
+  const rainReadings = useMemo(() => {
+    const rainSensorIds = new Set(
+      processedSensors.filter(s => s.metrics.includes('rain')).map(s => s.id)
+    );
+    return allReadings.filter(r => r.sensorId && rainSensorIds.has(r.sensorId));
+  }, [allReadings, processedSensors]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
@@ -368,7 +392,7 @@ function App() {
                   <span>🌡️</span> Istoric Temperaturi
                 </h3>
                 <TemperatureChart
-                  data={allReadings.filter(r => r.temperature !== undefined)}
+                  data={temperatureReadings}
                   timeRange={timeRange}
                 />
               </div>
@@ -381,7 +405,7 @@ function App() {
                   <span>💧</span> Istoric Umiditate
                 </h3>
                 <HumidityChart
-                  data={allReadings.filter(r => r.humidity !== undefined)}
+                  data={humidityReadings}
                   timeRange={timeRange}
                 />
               </div>
@@ -394,24 +418,20 @@ function App() {
                   <span>💨</span> Istoric Vânt
                 </h3>
                 <WindChart
-                  data={allReadings.filter(r =>
-                    r.sensorId && processedSensors.find(s => s.id === r.sensorId)?.metrics.includes('wind')
-                  )}
+                  data={windReadings}
                   timeRange={timeRange}
                 />
               </div>
             )}
 
             {/* Rain */}
-            {processedSensors.some(s => s.metrics.includes('rain')) && (
+            {hasRainSensor && (
               <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
                 <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
                   <span>🌧️</span> Istoric Ploaie
                 </h3>
                 <RainChart
-                  data={allReadings.filter(r =>
-                    r.sensorId && processedSensors.find(s => s.id === r.sensorId)?.metrics.includes('rain')
-                  )}
+                  data={rainReadings}
                   timeRange={timeRange}
                 />
               </div>
