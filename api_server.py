@@ -227,10 +227,17 @@ def api_sensors():
 
 @app.route('/api/all')
 def api_all():
+    # Respectă parametrul hours din query string
+    hours = int(request.args.get('hours', 24))
     sensors = discover_sensors()
     readings = {}
     for s in sensors:
-        readings[s['id']] = get_sensor_readings(s['id'], 168)
+        all_readings = get_sensor_readings(s['id'], hours)
+        # Downsampling: dacă sunt prea multe puncte, reducem
+        if len(all_readings) > 500:
+            step = len(all_readings) // 500
+            all_readings = all_readings[::step]
+        readings[s['id']] = all_readings
     return jsonify({'sensors': sensors, 'readings': readings})
 
 @app.route('/api/sensor/<sensor_id>')

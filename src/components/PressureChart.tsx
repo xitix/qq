@@ -9,6 +9,7 @@ import {
   Legend,
 } from 'recharts';
 import { TimeRange } from '../data/mockData';
+import { downsample } from '../utils/downsample';
 
 interface ChartDataPoint {
   timestamp: string;
@@ -48,7 +49,10 @@ function getTickInterval(range: TimeRange, dataLength: number): number {
 const defaultColors = ['#8b5cf6', '#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#ec4899', '#06b6d4'];
 
 export default function PressureChart({ data, timeRange }: PressureChartProps) {
-  if (data.length === 0) {
+  // Aplică downsampling pentru performanță
+  const chartData = downsample(data);
+  
+  if (chartData.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-500">
         Nicio dată pentru intervalul selectat
@@ -56,10 +60,10 @@ export default function PressureChart({ data, timeRange }: PressureChartProps) {
     );
   }
 
-  const sensorIds = [...new Set(data.map(d => d.sensorId))];
+  const sensorIds = [...new Set(chartData.map(d => d.sensorId))];
 
   if (sensorIds.length === 1) {
-    const sensorData = data.map(d => ({
+    const sensorData = chartData.map(d => ({
       timestamp: d.timestamp,
       value: d.pressure_hpa,
     }));
@@ -101,7 +105,7 @@ export default function PressureChart({ data, timeRange }: PressureChartProps) {
             dataKey="value"
             stroke={defaultColors[0]}
             strokeWidth={2}
-            dot={data.length < 30}
+            dot={chartData.length < 30}
             activeDot={{ r: 4 }}
           />
         </LineChart>
@@ -110,10 +114,10 @@ export default function PressureChart({ data, timeRange }: PressureChartProps) {
   }
 
   // Multiple sensors
-  const allTimestamps = [...new Set(data.map(d => d.timestamp))].sort();
+  const allTimestamps = [...new Set(chartData.map(d => d.timestamp))].sort();
   const combinedData = allTimestamps.map(ts => {
     const point: Record<string, string | number | undefined> = { timestamp: ts };
-    data.filter(d => d.timestamp === ts).forEach(d => {
+    chartData.filter(d => d.timestamp === ts).forEach(d => {
       if (d.sensorId) {
         point[d.sensorId] = d.pressure_hpa;
       }
@@ -158,7 +162,7 @@ export default function PressureChart({ data, timeRange }: PressureChartProps) {
             key={id}
             type="monotone"
             dataKey={id}
-            name={data.find(d => d.sensorId === id)?.sensorName || id}
+            name={chartData.find(d => d.sensorId === id)?.sensorName || id}
             stroke={defaultColors[idx % defaultColors.length]}
             strokeWidth={2}
             dot={combinedData.length < 30}

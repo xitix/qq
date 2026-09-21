@@ -8,6 +8,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { TimeRange } from '../data/mockData';
+import { downsample } from '../utils/downsample';
 
 interface ChartDataPoint {
   timestamp: string;
@@ -43,7 +44,9 @@ function getTickInterval(range: TimeRange, dataLength: number): number {
 }
 
 export default function RainChart({ data, timeRange }: RainChartProps) {
-  const rainData = data.filter(d => d.rain_mm !== undefined && d.rain_mm > 0);
+  // Aplică downsampling pentru performanță
+  const downsampledData = downsample(data);
+  const rainData = downsampledData.filter(d => d.rain_mm !== undefined && d.rain_mm > 0);
   
   if (rainData.length === 0) {
     return (

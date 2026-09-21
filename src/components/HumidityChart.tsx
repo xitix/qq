@@ -9,6 +9,7 @@ import {
   Legend,
 } from 'recharts';
 import { TimeRange } from '../data/mockData';
+import { downsample } from '../utils/downsample';
 
 interface ChartDataPoint {
   timestamp: string;
@@ -48,7 +49,10 @@ function getTickInterval(range: TimeRange, dataLength: number): number {
 const defaultColors = ['#06b6d4', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#3b82f6'];
 
 export default function HumidityChart({ data, timeRange }: HumidityChartProps) {
-  if (data.length === 0) {
+  // Aplică downsampling pentru performanță
+  const chartData = downsample(data);
+  
+  if (chartData.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-500">
         Nicio dată pentru intervalul selectat
@@ -56,10 +60,10 @@ export default function HumidityChart({ data, timeRange }: HumidityChartProps) {
     );
   }
 
-  const sensorIds = [...new Set(data.map(d => d.sensorId).filter(Boolean))] as string[];
+  const sensorIds = [...new Set(chartData.map(d => d.sensorId).filter(Boolean))] as string[];
 
   if (sensorIds.length === 1) {
-    const sensorData = data.map(d => ({
+    const sensorData = chartData.map(d => ({
       timestamp: d.timestamp,
       value: d.humidity,
     }));
@@ -108,7 +112,7 @@ export default function HumidityChart({ data, timeRange }: HumidityChartProps) {
             stroke="#06b6d4"
             strokeWidth={2}
             fill="url(#humGradient)"
-            dot={data.length < 30}
+            dot={chartData.length < 30}
             activeDot={{ r: 4 }}
           />
         </AreaChart>
@@ -117,10 +121,10 @@ export default function HumidityChart({ data, timeRange }: HumidityChartProps) {
   }
 
   // Multiple sensors
-  const allTimestamps = [...new Set(data.map(d => d.timestamp))].sort();
+  const allTimestamps = [...new Set(chartData.map(d => d.timestamp))].sort();
   const combinedData = allTimestamps.map(ts => {
     const point: Record<string, string | number | undefined> = { timestamp: ts };
-    data.filter(d => d.timestamp === ts).forEach(d => {
+    chartData.filter(d => d.timestamp === ts).forEach(d => {
       if (d.sensorId) {
         point[d.sensorId] = d.humidity;
       }
@@ -162,7 +166,7 @@ export default function HumidityChart({ data, timeRange }: HumidityChartProps) {
         <Legend />
         {sensorIds.map((id, idx) => {
           const color = defaultColors[idx % defaultColors.length];
-          const name = data.find(d => d.sensorId === id)?.sensorName || id;
+          const name = chartData.find(d => d.sensorId === id)?.sensorName || id;
           return (
             <Area
               key={id}

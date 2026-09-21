@@ -1,7 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   buildSensors,
-  filterByTimeRange,
   filterAberrations,
   getLatestReading,
   TimeRange,
@@ -38,6 +37,16 @@ function saveSelectedSensors(ids: string[]): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
   } catch (e) {
     console.warn('Failed to save selected sensors:', e);
+  }
+}
+
+// Convertește TimeRange în ore pentru API
+function timeRangeToHours(range: TimeRange): number {
+  switch (range) {
+    case '1h': return 1;
+    case '24h': return 24;
+    case '7d': return 168;
+    case 'all': return 0; // 0 = toate datele
   }
 }
 
@@ -106,8 +115,10 @@ function App() {
     saveSelectedSensors(validIds);
   }, [availableSensors]);
 
-  // Încarcă datele de la API
+  // Încarcă datele de la API - se reîncarcă când se schimbă timeRange
   useEffect(() => {
+    const hours = timeRangeToHours(timeRange);
+    
     const refreshData = async () => {
       // Verifică status API
       const status = await initDatabase();
@@ -118,8 +129,8 @@ function App() {
         const sensors = await fetchAvailableSensors();
         setAvailableSensors(sensors);
 
-        // Fetch-ează datele pentru senzorii selectați
-        const data = await fetchAllData();
+        // Fetch-ează datele pentru senzorii selectați cu filtrul de timp corect
+        const data = await fetchAllData(hours);
         if (data?.readings) {
           setApiReadings(data.readings);
         }
@@ -135,9 +146,12 @@ function App() {
     };
 
     refreshData();
-    const interval = setInterval(refreshData, 30000);
+    
+    // Polling inteligent: mai des pentru intervale scurte, mai rar pentru intervale lungi
+    const pollInterval = hours <= 1 ? 15000 : hours <= 24 ? 30000 : 60000;
+    const interval = setInterval(refreshData, pollInterval);
     return () => clearInterval(interval);
-  }, []);
+  }, [timeRange]);
 
   // Curăță selecția când un senzor nu mai există în DB
   useEffect(() => {
@@ -159,7 +173,8 @@ function App() {
       // Reîncarcă senzorii pentru a vedea corecția aplicată
       const sensors = await fetchAvailableSensors();
       setAvailableSensors(sensors);
-      const data = await fetchAllData();
+      const hours = timeRangeToHours(timeRange);
+      const data = await fetchAllData(hours);
       if (data?.readings) setApiReadings(data.readings);
     }
   };
@@ -176,7 +191,8 @@ function App() {
       // Reîncarcă datele
       const sensors = await fetchAvailableSensors();
       setAvailableSensors(sensors);
-      const data = await fetchAllData();
+      const hours = timeRangeToHours(timeRange);
+      const data = await fetchAllData(hours);
       if (data?.readings) setApiReadings(data.readings);
     }
   };
@@ -186,20 +202,23 @@ function App() {
     if (success) {
       const sensors = await fetchAvailableSensors();
       setAvailableSensors(sensors);
-      const data = await fetchAllData();
+      const hours = timeRangeToHours(timeRange);
+      const data = await fetchAllData(hours);
       if (data?.readings) setApiReadings(data.readings);
     }
   };
 
   const processedSensors: Sensor[] = useMemo(() => {
     return sensors.map(sensor => {
-      let readings = filterByTimeRange(sensor.readings, timeRange);
+      // Datele vin deja filtrate de la API (parametrul hours)
+      // Nu mai filtrăm din nou în frontend
+      let readings = sensor.readings;
       if (filterAberr) {
         readings = filterAberrations(readings);
       }
       return { ...sensor, readings };
     });
-  }, [sensors, timeRange, filterAberr]);
+  }, [sensors, filterAberr]);
 
   const allReadings = useMemo(() => {
     return processedSensors.flatMap(s =>

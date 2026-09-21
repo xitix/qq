@@ -42,11 +42,12 @@ let lastStatus: DBStatus = {
 
 /**
  * Fetch-ează toate datele de la API
+ * @param hours - Numărul de ore de istoric (1, 24, 168 pentru 7 zile, sau 0 pentru tot)
  */
-export async function fetchAllData(): Promise<APIResponse | null> {
+export async function fetchAllData(hours: number = 24): Promise<APIResponse | null> {
   try {
     // Cache-busting query param pentru a forța reîncărcarea
-    const response = await fetch(`${API_BASE}/api/all?t=${Date.now()}`, {
+    const response = await fetch(`${API_BASE}/api/all?hours=${hours}&t=${Date.now()}`, {
       cache: 'no-store',
     });
     

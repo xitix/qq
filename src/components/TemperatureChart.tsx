@@ -48,8 +48,18 @@ function getTickInterval(range: TimeRange, dataLength: number): number {
 // Colors will be determined from data
 const defaultColors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
 
+// Downsampling pentru performanță - limitează punctele afișate
+function downsample<T>(data: T[], maxPoints: number = 300): T[] {
+  if (data.length <= maxPoints) return data;
+  const step = Math.ceil(data.length / maxPoints);
+  return data.filter((_, i) => i % step === 0);
+}
+
 export default function TemperatureChart({ data, timeRange }: TemperatureChartProps) {
-  if (data.length === 0) {
+  // Aplică downsampling pentru performanță
+  const chartData = downsample(data);
+  
+  if (chartData.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-500">
         Nicio dată pentru intervalul selectat
@@ -58,11 +68,11 @@ export default function TemperatureChart({ data, timeRange }: TemperatureChartPr
   }
 
   // Group data by sensor
-  const sensorIds = [...new Set(data.map(d => d.sensorId))];
+  const sensorIds = [...new Set(chartData.map(d => d.sensorId))];
   
   // For single sensor, show simple line chart
   if (sensorIds.length === 1) {
-    const sensorData = data.map(d => ({
+    const sensorData = chartData.map(d => ({
       timestamp: d.timestamp,
       value: d.temperature,
     }));
@@ -104,7 +114,7 @@ export default function TemperatureChart({ data, timeRange }: TemperatureChartPr
             dataKey="value"
             stroke={defaultColors[0]}
             strokeWidth={2}
-            dot={data.length < 30}
+            dot={chartData.length < 30}
             activeDot={{ r: 4 }}
           />
         </LineChart>
@@ -113,10 +123,10 @@ export default function TemperatureChart({ data, timeRange }: TemperatureChartPr
   }
 
   // For multiple sensors, overlay lines
-  const allTimestamps = [...new Set(data.map(d => d.timestamp))].sort();
+  const allTimestamps = [...new Set(chartData.map(d => d.timestamp))].sort();
   const combinedData = allTimestamps.map(ts => {
     const point: Record<string, string | number | undefined> = { timestamp: ts };
-    data.filter(d => d.timestamp === ts).forEach(d => {
+    chartData.filter(d => d.timestamp === ts).forEach(d => {
       if (d.sensorId) {
         point[d.sensorId] = d.temperature;
       }
@@ -161,7 +171,7 @@ export default function TemperatureChart({ data, timeRange }: TemperatureChartPr
             key={id}
             type="monotone"
             dataKey={id}
-            name={data.find(d => d.sensorId === id)?.sensorName || id}
+            name={chartData.find(d => d.sensorId === id)?.sensorName || id}
             stroke={defaultColors[idx % defaultColors.length]}
             strokeWidth={2}
             dot={combinedData.length < 30}

@@ -9,6 +9,7 @@ import {
   Legend,
 } from 'recharts';
 import { TimeRange } from '../data/mockData';
+import { downsample } from '../utils/downsample';
 
 interface ChartDataPoint {
   timestamp: string;
@@ -46,7 +47,9 @@ function getTickInterval(range: TimeRange, dataLength: number): number {
 }
 
 export default function WindChart({ data, timeRange }: WindChartProps) {
-  const windData = data.filter(d => d.wind_avg_kmh !== undefined);
+  // Aplică downsampling pentru performanță
+  const downsampledData = downsample(data);
+  const windData = downsampledData.filter(d => d.wind_avg_kmh !== undefined);
   
   if (windData.length === 0) {
     return (
