@@ -13,6 +13,21 @@ CORS(app)
 DB_PATH = '/root/sensors.db'
 CORRECTIONS_PATH = '/root/meteo-dashboard/sensor_corrections.json'
 
+# --- Whitelist Senzori ---
+# Doar acești senzori vor fi afișați în dashboard (elimină zgomotul din vecinătate)
+# Adaugă ID-urile senzorilor tăi aici când îi montezi
+SENSOR_WHITELIST = [
+    'Fineoffset-WHx080_241',      # Stație meteo curte (exterioar)
+    'Fineoffset-WHx080_244',      # Stație meteo (dacă există)
+    'Nexus-TH_58',                # Senzor temperatură/umiditate
+    'Acurite-986_1024',           # Senzor Acurite
+    'Acurite-986_194',            # Senzor Acurite
+    'Ambientweather-F007TH_32',   # Senzor AmbientWeather
+    'Ambientweather-F007TH_8',    # Senzor AmbientWeather
+    # Adaugă aici ID-urile senzorilor noi când îi montezi
+    # Format: 'Model_ID' (ex: 'BMP280_123' pentru senzor BMP280 cu ID 123)
+]
+
 # --- Strat de Cache în RAM ---
 CACHE_ALL_DATA = None
 CACHE_ALL_TIMESTAMP = 0
@@ -97,6 +112,11 @@ def discover_sensors():
                 continue
 
             sensor_key = f"{model}_{sensor_id}"
+            
+            # Filtrare whitelist - ignoră senzorii din afara listei
+            if SENSOR_WHITELIST and sensor_key not in SENSOR_WHITELIST:
+                continue
+            
             if sensor_key not in sensors:
                 cursor.execute(
                     "SELECT * FROM readings WHERE topic LIKE ? ORDER BY timestamp DESC LIMIT 1",
@@ -241,8 +261,17 @@ def api_sensors():
 
 @app.route('/api/all')
 def api_all():
+    global CACHE_ALL_DATA, CACHE_ALL_TIMESTAMP
+    
     # Respectă parametrul hours din query string
     hours = int(request.args.get('hours', 24))
+    
+    # Folosește cache-ul doar pentru hours=24 (valoarea implicită)
+    if hours == 24:
+        now = time.time()
+        if CACHE_ALL_DATA and (now - CACHE_ALL_TIMESTAMP < CACHE_TTL_SECONDS):
+            return jsonify(CACHE_ALL_DATA)
+    
     sensors = discover_sensors()
     readings = {}
     for s in sensors:
@@ -252,7 +281,15 @@ def api_all():
             step = len(all_readings) // 500
             all_readings = all_readings[::step]
         readings[s['id']] = all_readings
-    return jsonify({'sensors': sensors, 'readings': readings})
+    
+    response_data = {'sensors': sensors, 'readings': readings}
+    
+    # Salvează în cache doar pentru hours=24
+    if hours == 24:
+        CACHE_ALL_DATA = response_data
+        CACHE_ALL_TIMESTAMP = time.time()
+    
+    return jsonify(response_data)
 
 @app.route('/api/sensor/<sensor_id>')
 def api_sensor(sensor_id):
