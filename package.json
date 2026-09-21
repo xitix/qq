@@ -19,10 +19,10 @@
     "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.8.0",
+    "react-router-dom": "^7.18.4",
     "recharts": "^2.10.0",
     "sql.js": "^1.14.2",
-    "uuid": "^9.0.1"
+    "uuid": "^14.0.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.7",
