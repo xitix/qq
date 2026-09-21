@@ -4,6 +4,7 @@ from flask_cors import CORS
 import sqlite3
 import os
 import json
+import time
 from datetime import datetime, timedelta
 
 app = Flask(__name__, static_folder='dist', static_url_path='')
@@ -11,6 +12,11 @@ CORS(app)
 
 DB_PATH = '/root/sensors.db'
 CORRECTIONS_PATH = '/root/meteo-dashboard/sensor_corrections.json'
+
+# --- Strat de Cache în RAM ---
+CACHE_ALL_DATA = None
+CACHE_ALL_TIMESTAMP = 0
+CACHE_TTL_SECONDS = 30  # Datele sunt păstrate în RAM timp de 30 de secunde
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -23,7 +29,7 @@ def load_corrections():
         try:
             with open(CORRECTIONS_PATH, 'r') as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -39,17 +45,6 @@ def parse_topic(topic):
     return None, None, None
 
 def apply_rain_correction(sensor_id, raw_rain_mm, corrections):
-    """
-    Aplică corecția pentru ploaie.
-    
-    Logica:
-    - offset = valoarea eronată de bază (ex: 39.9)
-    - Dacă raw >= offset → delta = raw - offset (ploaie nouă)
-    - Dacă raw < offset → senzorul a fost resetat → noul offset = raw, delta = 0
-    - Dacă raw == offset → delta = 0 (fără ploaie nouă)
-    
-    Returnează (delta, new_offset)
-    """
     correction = corrections.get(sensor_id, {})
     offset = correction.get('rain_offset', None)
     
@@ -57,14 +52,10 @@ def apply_rain_correction(sensor_id, raw_rain_mm, corrections):
         return raw_rain_mm, offset
     
     if raw_rain_mm >= offset:
-        # Valoare normală - calculează delta
         delta = round(raw_rain_mm - offset, 1)
         return delta, offset
     else:
-        # Senzorul a fost resetat (valoarea a scăzut sub offset)
-        # Noul offset devine valoarea curentă
         new_offset = raw_rain_mm
-        # Actualizează offset-ul în corecții
         if sensor_id not in corrections:
             corrections[sensor_id] = {}
         corrections[sensor_id]['rain_offset'] = new_offset
@@ -78,59 +69,67 @@ def discover_sensors():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT topic FROM readings")
-        topics = [row[0] for row in cursor.fetchall()]
+
+        # Interogare 1: Numarul de citiri per topic
+        cursor.execute("SELECT topic, COUNT(*) as count FROM readings GROUP BY topic")
+        topic_counts = {row['topic']: row['count'] for row in cursor.fetchall()}
+
+        # Interogare 2: Ultima citire pentru fiecare topic (într-un singur QUERY)
+        cursor.execute("""
+            SELECT r.topic, r.timestamp, r.payload 
+            FROM readings r
+            INNER JOIN (
+                SELECT topic, MAX(timestamp) as max_ts 
+                FROM readings 
+                GROUP BY topic
+            ) latest ON r.topic = latest.topic AND r.timestamp = latest.max_ts
+        """)
+        latest_readings = cursor.fetchall()
+        conn.close()
+
+        corrections = load_corrections()
         sensors = {}
-        for topic in topics:
+
+        for row in latest_readings:
+            topic = row['topic']
             model, subtype, sensor_id = parse_topic(topic)
             if not model or not sensor_id:
                 continue
+
             sensor_key = f"{model}_{sensor_id}"
-            if sensor_key not in sensors:
-                cursor.execute(
-                    "SELECT * FROM readings WHERE topic LIKE ? ORDER BY timestamp DESC LIMIT 1",
-                    (f'%/{model}/%/{sensor_id}',)
-                )
-                last_row = cursor.fetchone()
-                if last_row:
-                    try:
-                        payload = json.loads(last_row['payload'])
-                    except:
-                        payload = {}
-                    metrics = []
-                    if 'temperature_C' in payload: metrics.append('temperature')
-                    if 'humidity' in payload: metrics.append('humidity')
-                    if 'rain_mm' in payload: metrics.append('rain')
-                    if 'wind_avg_km_h' in payload: metrics.append('wind')
-                    if 'battery_ok' in payload: metrics.append('battery')
-                    cursor.execute(
-                        "SELECT COUNT(*) as count FROM readings WHERE topic LIKE ?",
-                        (f'%/{model}/%/{sensor_id}',)
-                    )
-                    total = cursor.fetchone()['count']
-                    
-                    # Încarcă corecțiile pentru acest senzor
-                    corrections = load_corrections()
-                    correction_info = corrections.get(sensor_key, {})
-                    
-                    sensors[sensor_key] = {
-                        'id': sensor_key,
-                        'device_id': sensor_id,
-                        'name': f"{model} - ID {sensor_id}",
-                        'model': model,
-                        'subtype': subtype,
-                        'last_update': last_row['timestamp'],
-                        'total_readings': total,
-                        'battery': 'ok' if payload.get('battery_ok') == 1 else 'low',
-                        'metrics': metrics,
-                        'rssi': payload.get('rssi'),
-                        'protocol': payload.get('protocol'),
-                        'corrections': correction_info,
-                    }
-        conn.close()
+            
+            try:
+                payload = json.loads(row['payload'])
+            except Exception:
+                payload = {}
+
+            metrics = []
+            if 'temperature_C' in payload: metrics.append('temperature')
+            if 'humidity' in payload: metrics.append('humidity')
+            if 'rain_mm' in payload: metrics.append('rain')
+            if 'wind_avg_km_h' in payload: metrics.append('wind')
+            if 'battery_ok' in payload: metrics.append('battery')
+
+            correction_info = corrections.get(sensor_key, {})
+
+            sensors[sensor_key] = {
+                'id': sensor_key,
+                'device_id': sensor_id,
+                'name': f"{model} - ID {sensor_id}",
+                'model': model,
+                'subtype': subtype,
+                'last_update': row['timestamp'],
+                'total_readings': topic_counts.get(topic, 0),
+                'battery': 'ok' if payload.get('battery_ok') == 1 else 'low',
+                'metrics': metrics,
+                'rssi': payload.get('rssi'),
+                'protocol': payload.get('protocol'),
+                'corrections': correction_info,
+            }
+
         return sorted(sensors.values(), key=lambda x: x['last_update'], reverse=True)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in discover_sensors: {e}")
         return []
 
 def get_sensor_readings(sensor_id, hours=24):
@@ -144,6 +143,7 @@ def get_sensor_readings(sensor_id, hours=24):
             return []
         model, device_id = parts
         cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+
         cursor.execute(
             "SELECT timestamp, payload FROM readings WHERE topic LIKE ? AND timestamp >= ? ORDER BY timestamp ASC",
             (f'%/{model}/%/{device_id}', cutoff)
@@ -153,20 +153,22 @@ def get_sensor_readings(sensor_id, hours=24):
         rain_offset = corrections.get(sensor_id, {}).get('rain_offset', None)
         
         readings = []
-        for row in cursor.fetchall():
+        rows = cursor.fetchall()
+        conn.close()
+
+        for row in rows:
             try:
                 payload = json.loads(row['payload'])
                 reading = {'timestamp': row['timestamp']}
                 if 'temperature_C' in payload: reading['temperature'] = payload['temperature_C']
                 if 'humidity' in payload: reading['humidity'] = payload['humidity']
                 
-                # Aplică corecția pentru ploaie
                 if 'rain_mm' in payload:
                     raw_rain = payload['rain_mm']
                     if rain_offset is not None:
                         corrected, rain_offset = apply_rain_correction(sensor_id, raw_rain, corrections)
                         reading['rain_mm'] = corrected
-                        reading['rain_raw'] = raw_rain  # păstrează și valoarea brută pentru debug
+                        reading['rain_raw'] = raw_rain
                     else:
                         reading['rain_mm'] = raw_rain
                 
@@ -175,12 +177,12 @@ def get_sensor_readings(sensor_id, hours=24):
                 if 'wind_dir_deg' in payload: reading['wind_dir_deg'] = payload['wind_dir_deg']
                 if 'battery_ok' in payload: reading['battery'] = 'ok' if payload['battery_ok'] == 1 else 'low'
                 readings.append(reading)
-            except:
+            except Exception:
                 continue
-        conn.close()
+
         return readings
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in get_sensor_readings: {e}")
         return []
 
 @app.route('/api/status')
@@ -197,11 +199,22 @@ def api_sensors():
 
 @app.route('/api/all')
 def api_all():
+    global CACHE_ALL_DATA, CACHE_ALL_TIMESTAMP
+    
+    now = time.time()
+    # Servire direct din RAM dacă nu au trecut 30 de secunde de la ultima citire
+    if CACHE_ALL_DATA and (now - CACHE_ALL_TIMESTAMP < CACHE_TTL_SECONDS):
+        return jsonify(CACHE_ALL_DATA)
+
     sensors = discover_sensors()
     readings = {}
     for s in sensors:
         readings[s['id']] = get_sensor_readings(s['id'], 168)
-    return jsonify({'sensors': sensors, 'readings': readings})
+        
+    CACHE_ALL_DATA = {'sensors': sensors, 'readings': readings}
+    CACHE_ALL_TIMESTAMP = now
+    
+    return jsonify(CACHE_ALL_DATA)
 
 @app.route('/api/sensor/<sensor_id>')
 def api_sensor(sensor_id):
@@ -209,25 +222,13 @@ def api_sensor(sensor_id):
     readings = get_sensor_readings(sensor_id, hours)
     return jsonify(readings)
 
-# ===== Endpoint-uri pentru gestionarea corecțiilor =====
-
 @app.route('/api/corrections', methods=['GET'])
 def get_corrections():
-    """Returnează toate corecțiile configurate"""
     corrections = load_corrections()
     return jsonify(corrections)
 
 @app.route('/api/corrections/<sensor_id>/rain_offset', methods=['POST'])
 def set_rain_offset(sensor_id):
-    """
-    Setează offset-ul pentru ploaie al unui senzor.
-    
-    Body JSON: {"offset": 39.9}
-    
-    Logica:
-    - Toate valorile viitoare vor fi afișate ca delta = raw - offset
-    - Dacă raw < offset (senzor resetat), offset-ul se actualizează automat
-    """
     data = request.get_json()
     if not data or 'offset' not in data:
         return jsonify({'error': 'Missing "offset" field'}), 400
@@ -243,6 +244,10 @@ def set_rain_offset(sensor_id):
     
     save_corrections(corrections)
     
+    # Invalidează cache-ul la modificarea corecțiilor
+    global CACHE_ALL_DATA
+    CACHE_ALL_DATA = None
+    
     return jsonify({
         'sensor_id': sensor_id,
         'rain_offset': offset,
@@ -251,7 +256,6 @@ def set_rain_offset(sensor_id):
 
 @app.route('/api/corrections/<sensor_id>/rain_offset', methods=['DELETE'])
 def clear_rain_offset(sensor_id):
-    """Șterge offset-ul pentru ploaie (revino la valorile brute)"""
     corrections = load_corrections()
     if sensor_id in corrections and 'rain_offset' in corrections[sensor_id]:
         del corrections[sensor_id]['rain_offset']
@@ -260,14 +264,15 @@ def clear_rain_offset(sensor_id):
         if not corrections[sensor_id]:
             del corrections[sensor_id]
         save_corrections(corrections)
+        
+    # Invalidează cache-ul la ștergerea corecțiilor
+    global CACHE_ALL_DATA
+    CACHE_ALL_DATA = None
+    
     return jsonify({'message': f'Rain offset cleared for {sensor_id}'})
 
 @app.route('/api/corrections/<sensor_id>/rain_offset/auto', methods=['POST'])
 def auto_set_rain_offset(sensor_id):
-    """
-    Auto-detectează offset-ul din ultima valoare raportată.
-    Util când știi că ultima valoare e eronată.
-    """
     if not os.path.exists(DB_PATH):
         return jsonify({'error': 'DB not found'}), 404
     
@@ -300,6 +305,9 @@ def auto_set_rain_offset(sensor_id):
         corrections[sensor_id]['rain_offset'] = offset
         corrections[sensor_id]['rain_offset_set_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         save_corrections(corrections)
+        
+        global CACHE_ALL_DATA
+        CACHE_ALL_DATA = None
         
         return jsonify({
             'sensor_id': sensor_id,
